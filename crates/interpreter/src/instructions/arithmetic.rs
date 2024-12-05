@@ -46,8 +46,8 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let uint_op1: GarbledUint256 = GarbledUint256::from(ruint_to_garbled_uint(&op1));
-    let uint_op2: GarbledUint256 = GarbledUint256::from(ruint_to_garbled_uint(&op2));
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
     let result = uint_op1.add(uint_op2);
     *op2 = garbled_uint_to_ruint(&result);
 }
