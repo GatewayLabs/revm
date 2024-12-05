@@ -1,12 +1,55 @@
+use core::ops::Add;
+
 use super::i256::{i256_div, i256_mod};
 use crate::{gas, Host, Interpreter};
-use primitives::U256;
+use compute::{
+    self,
+    uint::{GarbledUint, GarbledUint256},
+};
+use primitives::{ruint::Uint, U256};
 use specification::hardfork::Spec;
+
+fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
+    // Get bytes in big-endian order
+    let bytes = value.to_be_bytes::<256>();
+
+    // Convert to bits in little-endian order (least significant first)
+    let bits: Vec<bool> = bytes
+        .iter()
+        .rev() // Reverse bytes for little-endian
+        .flat_map(|&byte| (0..8).map(move |i| ((byte >> i) & 1) == 1))
+        .collect();
+
+    GarbledUint::<256>::new(bits)
+}
+
+fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
+    // Convert bits to bytes in little-endian order (least significant first)
+    let bytes: Vec<u8> = value
+        .bits
+        .chunks(8)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .enumerate()
+                .fold(0, |byte, (i, &bit)| byte | ((bit as u8) << i))
+        })
+        .collect();
+
+    // Convert bytes to Uint
+    let mut array = [0u8; 256];
+    array.copy_from_slice(&bytes);
+    Uint::from_be_bytes::<256>(array)
+}
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1.wrapping_add(*op2);
+
+    let uint_op1: GarbledUint256 = GarbledUint256::from(ruint_to_garbled_uint(&op1));
+    let uint_op2: GarbledUint256 = GarbledUint256::from(ruint_to_garbled_uint(&op2));
+    let result = uint_op1.add(uint_op2);
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
