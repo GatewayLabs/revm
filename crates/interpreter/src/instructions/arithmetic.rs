@@ -1,11 +1,8 @@
-use core::ops::Add;
+use core::ops::{Add, Div, Mul, Rem, Sub};
 
 use super::i256::{i256_div, i256_mod};
 use crate::{gas, Host, Interpreter};
-use compute::{
-    self,
-    uint::{GarbledUint},
-};
+use compute::{self, uint::GarbledUint};
 use primitives::{ruint::Uint, U256};
 use specification::hardfork::Spec;
 
@@ -48,26 +45,41 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let uint_op1 = ruint_to_garbled_uint(&op1);
     let uint_op2 = ruint_to_garbled_uint(&op2);
     let result = uint_op1.add(uint_op2);
+
     *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1.wrapping_mul(*op2);
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+    let result = uint_op1.mul(uint_op2);
+
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1.wrapping_sub(*op2);
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+    let result = uint_op1.sub(uint_op2);
+
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
-        *op2 = op1.wrapping_div(*op2);
+        let uint_op1 = ruint_to_garbled_uint(&op1);
+        let uint_op2 = ruint_to_garbled_uint(&op2);
+        let result = uint_op1.div(uint_op2);
+
+        *op2 = garbled_uint_to_ruint(&result);
     }
 }
 
@@ -81,7 +93,11 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
-        *op2 = op1.wrapping_rem(*op2);
+        let uint_op1 = ruint_to_garbled_uint(&op1);
+        let uint_op2 = ruint_to_garbled_uint(&op2);
+        let result = uint_op1.rem(uint_op2);
+
+        *op2 = garbled_uint_to_ruint(&result);
     }
 }
 
