@@ -10,13 +10,12 @@ use primitives::{ruint::Uint, U256};
 use specification::hardfork::Spec;
 
 fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
-    // Get bytes in big-endian order
-    let bytes = value.to_be_bytes::<256>();
+    // Get bytes in little-endian order
+    let bytes: [u8; 32] = value.to_le_bytes(); // to_le_bytes to little-endian
 
     // Convert to bits in little-endian order (least significant first)
     let bits: Vec<bool> = bytes
         .iter()
-        .rev() // Reverse bytes for little-endian
         .flat_map(|&byte| (0..8).map(move |i| ((byte >> i) & 1) == 1))
         .collect();
 
@@ -37,9 +36,9 @@ fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
         .collect();
 
     // Convert bytes to Uint
-    let mut array = [0u8; 256];
+    let mut array = [0u8; 32]; // 256 bits / 8 bits per byte = 32 bytes
     array.copy_from_slice(&bytes);
-    Uint::from_be_bytes::<256>(array)
+    Uint::from_le_bytes(array) // Use from_le_bytes para little-endian
 }
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -137,5 +136,26 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
         let bit = x.bit(bit_index);
         let mask = (U256::from(1) << bit_index) - U256::from(1);
         *x = if bit { *x | !mask } else { *x & mask };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::ruint::Uint;
+
+    #[test]
+    fn test_ruint_to_garbled_uint() {
+        let value = Uint::<256, 4>::from(123456789u64);
+        let garbled = ruint_to_garbled_uint(&value);
+        assert_eq!(garbled.bits.len(), 256);
+    }
+
+    #[test]
+    fn test_garbled_uint_to_ruint() {
+        let value = Uint::<256, 4>::from(123456789u64);
+        let garbled = ruint_to_garbled_uint(&value);
+        let result = garbled_uint_to_ruint(&garbled);
+        assert_eq!(value, result);
     }
 }
