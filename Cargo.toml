@@ -2,7 +2,7 @@
 resolver = "2"
 default-members = ["crates/revm"]
 members = [
-    # binary 
+    # binary
     "bins/revme",
 
     # libraries
@@ -50,6 +50,9 @@ inspector = { path = "crates/inspector", package = "revm-inspector", version = "
 precompile = { path = "crates/precompile", package = "revm-precompile", version = "11.0.1", default-features = false }
 statetest-types = { path = "crates/statetest-types", package = "revm-statetest-types", version = "1.0.0", default-features = false }
 compute = { package = "compute", git = "https://github.com/Gateway-DAO/circuit-sdk", branch = "main" }
+
+anyhow = "1.0.93"
+tracing = { version = "0.1.40", features = ["log"] }
 
 [workspace.package]
 license = "MIT"
