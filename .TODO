@@ -1,0 +1,12 @@
+REVM GC Operations:
+
+	Implementation:
+		☐ Instantiate Builder on Interpreter::new()
+		☐ Execute (LocalSimulator) on Interpreter::run()
+		☐ Implement Interpreter builder.<op> on arithmetic operations
+
+	Testing:
+		☐ Does EthTests work?
+
+		otherwise...
+		☐ How to run rEVM locally and compile simply solidity contract
