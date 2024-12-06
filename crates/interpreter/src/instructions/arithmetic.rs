@@ -4,7 +4,7 @@ use super::i256::{i256_div, i256_mod};
 use crate::{gas, Host, Interpreter};
 use compute::{
     self,
-    uint::{GarbledUint, GarbledUint256},
+    uint::{GarbledUint},
 };
 use primitives::{ruint::Uint, U256};
 use specification::hardfork::Spec;
