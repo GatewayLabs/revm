@@ -2,7 +2,7 @@
 resolver = "2"
 default-members = ["crates/revm"]
 members = [
-    # binary 
+    # binary
     "bins/revme",
 
     # libraries
@@ -19,6 +19,9 @@ members = [
     "crates/wiring/transaction",
     "crates/specification",
     "crates/statetest-types",
+
+    # circuit-sdk
+    "crates/circuit-sdk/compute",
 
     # variants
     "crates/optimism",
@@ -49,6 +52,9 @@ interpreter = { path = "crates/interpreter", package = "revm-interpreter", versi
 inspector = { path = "crates/inspector", package = "revm-inspector", version = "1.0.0", default-features = false }
 precompile = { path = "crates/precompile", package = "revm-precompile", version = "11.0.1", default-features = false }
 statetest-types = { path = "crates/statetest-types", package = "revm-statetest-types", version = "1.0.0", default-features = false }
+
+anyhow = "1.0.93"
+tracing = { version = "0.1.40", features = ["log"] }
 
 [workspace.package]
 license = "MIT"
