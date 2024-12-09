@@ -52,3 +52,7 @@ hashbrown = ["primitives/hashbrown"]
 serde = ["dep:serde", "primitives/serde", "bytecode/serde", "wiring/serde"]
 arbitrary = ["std", "primitives/arbitrary"]
 memory_limit = ["wiring/memory_limit"]
+
+[profile.dev]
+opt-level = 0
+debug = true

@@ -158,6 +158,7 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Contract, DummyHost};
     use primitives::ruint::Uint;
 
     #[test]
@@ -173,5 +174,41 @@ mod tests {
         let garbled = ruint_to_garbled_uint(&value);
         let result = garbled_uint_to_ruint(&garbled);
         assert_eq!(value, result);
+    }
+
+    #[test]
+    fn test_add() {
+        let contract = Contract::default();
+        let gas_limit = 0u64;
+        let is_static = false;
+        let mut interpreter = Interpreter::new(contract, gas_limit, is_static);
+
+        // Create Uint<256, 4> values
+        let op1 = Uint::<256, 4>::from(42u64);
+        let op2 = Uint::<256, 4>::from(58u64);
+
+        // Create a dummy host
+        let mut host: DummyHost<
+            wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
+        > = DummyHost::default();
+
+        // Push values to the interpreter stack
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
+
+        // Call the add function
+        add(&mut interpreter, &mut host);
+
+        // Check the result
+        let result = interpreter.stack.pop().unwrap();
+        let expected_result = Uint::<256, 4>::from(100u64);
+
+        assert_eq!(result, expected_result);
     }
 }
