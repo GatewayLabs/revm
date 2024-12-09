@@ -35,7 +35,7 @@ fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
 }
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    //gas!(interpreter, gas::VERYLOW);
+    gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -46,7 +46,7 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    // gas!(interpreter, gas::LOW);
+    gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -57,7 +57,7 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    // gas!(interpreter, gas::VERYLOW);
+    gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -68,7 +68,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    // gas!(interpreter, gas::LOW);
+    gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
         let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -86,7 +86,7 @@ pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    // gas!(interpreter, gas::LOW);
+    gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
         let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -159,7 +159,7 @@ mod tests {
 
     fn generate_interpreter() -> Interpreter {
         let contract = Contract::default();
-        let gas_limit = 0u64;
+        let gas_limit = 10_000_000;
         let is_static = false;
         Interpreter::new(contract, gas_limit, is_static)
     }
