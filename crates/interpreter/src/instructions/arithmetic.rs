@@ -7,26 +7,27 @@ use primitives::{ruint::Uint, U256};
 use specification::hardfork::Spec;
 
 fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
-    // Get bytes in little-endian order
-    let bytes: [u8; 32] = value.to_le_bytes(); // to_le_bytes to little-endian
+    // Get bytes in big-endian order
+    let bytes: [u8; 32] = value.to_be_bytes(); // to_be_bytes for big-endian
 
-    // Convert to bits in little-endian order (least significant first)
+    // Convert to bits in big-endian order (most significant first)
     let bits: Vec<bool> = bytes
         .iter()
-        .flat_map(|&byte| (0..8).map(move |i| ((byte >> i) & 1) == 1))
+        .flat_map(|&byte| (0..8).rev().map(move |i| ((byte >> i) & 1) == 1))
         .collect();
 
     GarbledUint::<256>::new(bits)
 }
 
 fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
-    // Convert bits to bytes in little-endian order (least significant first)
+    // Convert bits to bytes in big-endian order (most significant first)
     let bytes: Vec<u8> = value
         .bits
         .chunks(8)
         .map(|chunk| {
             chunk
                 .iter()
+                .rev()
                 .enumerate()
                 .fold(0, |byte, (i, &bit)| byte | ((bit as u8) << i))
         })
@@ -35,22 +36,37 @@ fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
     // Convert bytes to Uint
     let mut array = [0u8; 32]; // 256 bits / 8 bits per byte = 32 bytes
     array.copy_from_slice(&bytes);
-    Uint::from_le_bytes(array) // Use from_le_bytes para little-endian
+    Uint::from_be_bytes(array) // Use from_be_bytes for big-endian
+}
+
+fn vec_bool_to_binary_string(vec: Vec<bool>) -> String {
+    let mut result = String::new();
+    for bit in vec {
+        if bit {
+            result.push('1');
+        } else {
+            result.push('0');
+        }
+    }
+    result
 }
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::VERYLOW);
+    //gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
+    println!("op1: {}", vec_bool_to_binary_string(uint_op1.bits.clone()));
     let uint_op2 = ruint_to_garbled_uint(&op2);
+    println!("op2: {}", vec_bool_to_binary_string(uint_op2.bits.clone()));
     let result = uint_op1.add(uint_op2);
+    println!("result: {}", vec_bool_to_binary_string(result.bits.clone()));
 
     *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::LOW);
+    // gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -61,7 +77,7 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::VERYLOW);
+    // gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
     let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -72,7 +88,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::LOW);
+    // gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
         let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -90,7 +106,7 @@ pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::LOW);
+    // gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
         let uint_op1 = ruint_to_garbled_uint(&op1);
@@ -161,6 +177,19 @@ mod tests {
     use crate::{Contract, DummyHost};
     use primitives::ruint::Uint;
 
+    fn generate_interpreter() -> Interpreter {
+        let contract = Contract::default();
+        let gas_limit = 0u64;
+        let is_static = false;
+        Interpreter::new(contract, gas_limit, is_static)
+    }
+
+    fn generate_host() -> DummyHost<
+        wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
+    > {
+        DummyHost::default()
+    }
+
     #[test]
     fn test_ruint_to_garbled_uint() {
         let value = Uint::<256, 4>::from(123456789u64);
@@ -178,36 +207,145 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let contract = Contract::default();
-        let gas_limit = 0u64;
-        let is_static = false;
-        let mut interpreter = Interpreter::new(contract, gas_limit, is_static);
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
 
         // Create Uint<256, 4> values
-        let op1 = Uint::<256, 4>::from(42u64);
-        let op2 = Uint::<256, 4>::from(58u64);
-
-        // Create a dummy host
-        let mut host: DummyHost<
-            wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
-        > = DummyHost::default();
+        let op1 = Uint::<256, 4>::from(8u64);
+        let op2 = Uint::<256, 4>::from(10u64);
 
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op1.clone())
-            .expect("Failed to push op1 to stack");
-        interpreter
-            .stack
             .push(op2.clone())
             .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
 
         // Call the add function
         add(&mut interpreter, &mut host);
 
         // Check the result
         let result = interpreter.stack.pop().unwrap();
-        let expected_result = Uint::<256, 4>::from(100u64);
+        let expected_result = Uint::<256, 4>::from(18u64);
+
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_sub() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        // Create Uint<256, 4> values
+        let op1 = Uint::<256, 4>::from(100u64);
+        let op2 = Uint::<256, 4>::from(2u64);
+
+        // Push values to the interpreter stack
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
+
+        // Call the add function
+        sub(&mut interpreter, &mut host);
+
+        // Check the result
+        let result = interpreter.stack.pop().unwrap();
+        let expected_result = Uint::<256, 4>::from(98u64);
+
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_mul() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        // Create Uint<256, 4> values
+        let op1 = Uint::<256, 4>::from(100u64);
+        let op2 = Uint::<256, 4>::from(20u64);
+
+        // Push values to the interpreter stack
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
+
+        // Call the add function
+        mul(&mut interpreter, &mut host);
+
+        // Check the result
+        let result = interpreter.stack.pop().unwrap();
+        let expected_result = Uint::<256, 4>::from(2000u64);
+
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_div() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        // Create Uint<256, 4> values
+        let op1 = Uint::<256, 4>::from(100u64);
+        let op2 = Uint::<256, 4>::from(20u64);
+
+        // Push values to the interpreter stack
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
+
+        // Call the add function
+        div(&mut interpreter, &mut host);
+
+        // Check the result
+        let result = interpreter.stack.pop().unwrap();
+        let expected_result = Uint::<256, 4>::from(5u64);
+
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_rem() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        // Create Uint<256, 4> values
+        let op1 = Uint::<256, 4>::from(100u64);
+        let op2 = Uint::<256, 4>::from(20u64);
+
+        // Push values to the interpreter stack
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
+
+        // Call the add function
+        rem(&mut interpreter, &mut host);
+
+        // Check the result
+        let result = interpreter.stack.pop().unwrap();
+        let expected_result = Uint::<256, 4>::from(0u64);
 
         assert_eq!(result, expected_result);
     }
