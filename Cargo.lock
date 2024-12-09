@@ -936,6 +936,7 @@ dependencies = [
 [[package]]
 name = "circuit_macro"
 version = "0.1.0"
+source = "git+https://github.com/Gateway-DAO/circuit-sdk?branch=main#42b82227b8c0e8dd3e8ee20d9bf7b0681056be95"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1003,6 +1004,7 @@ dependencies = [
 [[package]]
 name = "compute"
 version = "0.1.0"
+source = "git+https://github.com/Gateway-DAO/circuit-sdk?branch=main#42b82227b8c0e8dd3e8ee20d9bf7b0681056be95"
 dependencies = [
  "anyhow",
  "bincode",
