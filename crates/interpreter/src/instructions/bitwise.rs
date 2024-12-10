@@ -1,5 +1,9 @@
 use super::i256::i256_cmp;
-use crate::{gas, Host, Interpreter};
+use crate::{
+    gas,
+    instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
+    Host, Interpreter,
+};
 use core::cmp::Ordering;
 use primitives::U256;
 use specification::hardfork::Spec;
@@ -7,13 +11,21 @@ use specification::hardfork::Spec;
 pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = U256::from(op1 < *op2);
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+
+    *op2 = U256::from(uint_op1.lt(&uint_op2));
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = U256::from(op1 > *op2);
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+
+    *op2 = U256::from(uint_op1.gt(&uint_op2));
 }
 
 pub fn slt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -31,7 +43,11 @@ pub fn sgt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = U256::from(op1 == *op2);
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+
+    *op2 = U256::from(uint_op1.eq(&uint_op2));
 }
 
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -43,25 +59,44 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1 & *op2;
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+    let result = uint_op1 & uint_op2;
+
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1 | *op2;
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+    let result = uint_op1 | uint_op2;
+
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = op1 ^ *op2;
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let uint_op2 = ruint_to_garbled_uint(&op2);
+    let result = uint_op1 ^ uint_op2;
+
+    *op2 = garbled_uint_to_ruint(&result);
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
-    *op1 = !*op1;
+
+    let uint_op1 = ruint_to_garbled_uint(&op1);
+    let result = !uint_op1;
+
+    *op1 = garbled_uint_to_ruint(&result);
 }
 
 pub fn byte<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
