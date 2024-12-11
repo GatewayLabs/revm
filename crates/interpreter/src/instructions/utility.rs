@@ -102,11 +102,32 @@ mod tests {
     #[test]
     fn test_negative_ruint_to_garbled_int() {
         let mut value = Uint::<256, 4>::from(10i64);
-    
+
         value = -value;
 
         let garbled = ruint_to_garbled_int(&value);
-    
-        assert_eq!(garbled.bits[U256::BITS-1], true);
+
+        assert_eq!(garbled.bits[U256::BITS - 1], true);
+    }
+
+    #[test]
+    fn test_garbled_int_to_ruint() {
+        let value = Uint::<256, 4>::from(123456789u64);
+        let garbled = ruint_to_garbled_int(&value);
+        let result = garbled_int_to_ruint(&garbled);
+        assert_eq!(value, result);
+    }
+
+    #[test]
+    fn test_negative_garbled_int_to_ruint() {
+        let mut value = Uint::<256, 4>::from(10i64);
+
+        value = -value;
+
+        let garbled = ruint_to_garbled_int(&value);
+        let result = garbled_int_to_ruint(&garbled);
+
+        assert_eq!(value, result);
+        assert_eq!(uint_to_i64(&result), -10i64)
     }
 }
