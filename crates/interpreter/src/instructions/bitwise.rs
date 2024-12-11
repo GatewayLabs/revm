@@ -101,6 +101,7 @@ pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     *op1 = garbled_uint_to_ruint(&result);
 }
 
+// TODO: Implement in garbled circuits
 pub fn byte<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
@@ -115,28 +116,32 @@ pub fn byte<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-// TODO: Implement in garbled circuits
 pub fn shl<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
+
     let shift = as_usize_saturated!(op1);
+
     *op2 = if shift < 256 {
-        *op2 << shift
+        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let shifted_op2 = garbled_op2 << shift;
+        garbled_uint_to_ruint(&shifted_op2)
     } else {
         U256::ZERO
     }
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
-// TODO: Implement in garbled circuits
 pub fn shr<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
-        *op2 >> shift
+        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let shifted_op2 = garbled_op2 >> shift;
+        garbled_uint_to_ruint(&shifted_op2)
     } else {
         U256::ZERO
     }
