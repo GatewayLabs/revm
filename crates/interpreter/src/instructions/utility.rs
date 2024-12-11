@@ -102,23 +102,11 @@ mod tests {
     #[test]
     fn test_negative_ruint_to_garbled_int() {
         let mut value = Uint::<256, 4>::from(10i64);
-        // invert the bits
-        for i in 0..256 {
-            value.set_bit(i, !value.bit(i));
-        }
-        let converted = uint_to_i64(&value);
-
-        // print the i64 value
-        println!("{}", uint_to_i64(&value));
-
-        value = Uint::<256, 4>::from(10i64);
-
+    
         value = -value;
-        let converted = uint_to_i64(&value);
-
-        println!("{}", uint_to_i64(&value));
 
         let garbled = ruint_to_garbled_int(&value);
-        assert_eq!(garbled.bits[0], true);
+    
+        assert_eq!(garbled.bits[U256::BITS-1], true);
     }
 }
