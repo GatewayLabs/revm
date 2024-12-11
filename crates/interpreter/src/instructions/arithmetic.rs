@@ -13,9 +13,9 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let uint_op1 = ruint_to_garbled_uint(&op1);
-    let uint_op2 = ruint_to_garbled_uint(&op2);
-    let result = uint_op1.add(uint_op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1);
+    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let result = garbled_op1.add(garbled_op2);
 
     *op2 = garbled_uint_to_ruint(&result);
 }
@@ -24,9 +24,9 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
 
-    let uint_op1 = ruint_to_garbled_uint(&op1);
-    let uint_op2 = ruint_to_garbled_uint(&op2);
-    let result = uint_op1.mul(uint_op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1);
+    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let result = garbled_op1.mul(garbled_op2);
 
     *op2 = garbled_uint_to_ruint(&result);
 }
@@ -35,9 +35,9 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let uint_op1 = ruint_to_garbled_uint(&op1);
-    let uint_op2 = ruint_to_garbled_uint(&op2);
-    let result = uint_op2.sub(uint_op1);
+    let garbled_op1 = ruint_to_garbled_uint(&op1);
+    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let result = garbled_op2.sub(garbled_op1);
 
     *op2 = garbled_uint_to_ruint(&result);
 }
@@ -46,9 +46,9 @@ pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
-        let uint_op1 = ruint_to_garbled_uint(&op1);
-        let uint_op2 = ruint_to_garbled_uint(&op2);
-        let result = uint_op1.div(uint_op2);
+        let garbled_op1 = ruint_to_garbled_uint(&op1);
+        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let result = garbled_op1.div(garbled_op2);
 
         *op2 = garbled_uint_to_ruint(&result);
     }
@@ -65,9 +65,9 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
     if !op2.is_zero() {
-        let uint_op1 = ruint_to_garbled_uint(&op1);
-        let uint_op2 = ruint_to_garbled_uint(&op2);
-        let result = uint_op1.rem(uint_op2);
+        let garbled_op1 = ruint_to_garbled_uint(&op1);
+        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let result = garbled_op1.rem(garbled_op2);
 
         *op2 = garbled_uint_to_ruint(&result);
     }
