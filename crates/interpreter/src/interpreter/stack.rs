@@ -1,4 +1,5 @@
 use crate::InstructionResult;
+use compute::prelude::GateIndexVec;
 use core::{fmt, ptr};
 use primitives::{B256, U256};
 use std::vec::Vec;
@@ -6,12 +7,18 @@ use std::vec::Vec;
 /// EVM interpreter stack limit.
 pub const STACK_LIMIT: usize = 1024;
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone, serde::Serialize)]
+pub enum StackValueData {
+    Private(GateIndexVec),
+    Public(U256),
+}
+
 /// EVM stack with [STACK_LIMIT] capacity of words.
 #[derive(Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Stack {
     /// The underlying data of the stack.
-    data: Vec<U256>,
+    data: Vec<StackValueData>,
 }
 
 impl fmt::Display for Stack {
@@ -69,26 +76,26 @@ impl Stack {
 
     /// Returns a reference to the underlying data buffer.
     #[inline]
-    pub fn data(&self) -> &Vec<U256> {
+    pub fn data(&self) -> &Vec<StackValueData> {
         &self.data
     }
 
     /// Returns a mutable reference to the underlying data buffer.
     #[inline]
-    pub fn data_mut(&mut self) -> &mut Vec<U256> {
+    pub fn data_mut(&mut self) -> &mut Vec<StackValueData> {
         &mut self.data
     }
 
     /// Consumes the stack and returns the underlying data buffer.
     #[inline]
-    pub fn into_data(self) -> Vec<U256> {
+    pub fn into_data(self) -> Vec<StackValueData> {
         self.data
     }
 
     /// Removes the topmost element from the stack and returns it, or `StackUnderflow` if it is
     /// empty.
     #[inline]
-    pub fn pop(&mut self) -> Result<U256, InstructionResult> {
+    pub fn pop(&mut self) -> Result<StackValueData, InstructionResult> {
         self.data.pop().ok_or(InstructionResult::StackUnderflow)
     }
 
@@ -98,7 +105,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop_unsafe(&mut self) -> U256 {
+    pub unsafe fn pop_unsafe(&mut self) -> StackValueData {
         self.data.pop().unwrap_unchecked()
     }
 
@@ -108,7 +115,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn top_unsafe(&mut self) -> &mut U256 {
+    pub unsafe fn top_unsafe(&mut self) -> &mut StackValueData {
         let len = self.data.len();
         self.data.get_unchecked_mut(len - 1)
     }
@@ -119,7 +126,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop_top_unsafe(&mut self) -> (U256, &mut U256) {
+    pub unsafe fn pop_top_unsafe(&mut self) -> (StackValueData, &mut StackValueData) {
         let pop = self.pop_unsafe();
         let top = self.top_unsafe();
         (pop, top)
@@ -131,7 +138,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop2_unsafe(&mut self) -> (U256, U256) {
+    pub unsafe fn pop2_unsafe(&mut self) -> (StackValueData, StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         (pop1, pop2)
@@ -143,7 +150,9 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop2_top_unsafe(&mut self) -> (U256, U256, &mut U256) {
+    pub unsafe fn pop2_top_unsafe(
+        &mut self,
+    ) -> (StackValueData, StackValueData, &mut StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let top = self.top_unsafe();
@@ -157,7 +166,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop3_unsafe(&mut self) -> (U256, U256, U256) {
+    pub unsafe fn pop3_unsafe(&mut self) -> (StackValueData, StackValueData, StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -171,7 +180,14 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop4_unsafe(&mut self) -> (U256, U256, U256, U256) {
+    pub unsafe fn pop4_unsafe(
+        &mut self,
+    ) -> (
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+    ) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -186,7 +202,15 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop5_unsafe(&mut self) -> (U256, U256, U256, U256, U256) {
+    pub unsafe fn pop5_unsafe(
+        &mut self,
+    ) -> (
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+    ) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -200,7 +224,7 @@ impl Stack {
     /// returns `StackOverflow` error and leaves the stack unchanged.
     #[inline]
     pub fn push_b256(&mut self, value: B256) -> Result<(), InstructionResult> {
-        self.push(value.into())
+        self.push(StackValueData::Public(value.into()))
     }
 
     /// Push a new value onto the stack.
@@ -208,7 +232,7 @@ impl Stack {
     /// If it will exceed the stack limit, returns `StackOverflow` error and leaves the stack
     /// unchanged.
     #[inline]
-    pub fn push(&mut self, value: U256) -> Result<(), InstructionResult> {
+    pub fn push(&mut self, value: StackValueData) -> Result<(), InstructionResult> {
         // Allows the compiler to optimize out the `Vec::push` capacity check.
         assume!(self.data.capacity() == STACK_LIMIT);
         if self.data.len() == STACK_LIMIT {
@@ -222,7 +246,7 @@ impl Stack {
     /// the stack is at index `0`. If the index is too large,
     /// `StackError::Underflow` is returned.
     #[inline]
-    pub fn peek(&self, no_from_top: usize) -> Result<U256, InstructionResult> {
+    pub fn peek(&self, no_from_top: usize) -> Result<StackValueData, InstructionResult> {
         if self.data.len() > no_from_top {
             Ok(self.data[self.data.len() - no_from_top - 1])
         } else {
@@ -363,7 +387,11 @@ impl Stack {
     /// stack is at index `0`. If the index is too large,
     /// `StackError::Underflow` is returned.
     #[inline]
-    pub fn set(&mut self, no_from_top: usize, val: U256) -> Result<(), InstructionResult> {
+    pub fn set(
+        &mut self,
+        no_from_top: usize,
+        val: StackValueData,
+    ) -> Result<(), InstructionResult> {
         if self.data.len() > no_from_top {
             let len = self.data.len();
             self.data[len - no_from_top - 1] = val;
@@ -380,7 +408,7 @@ impl<'de> serde::Deserialize<'de> for Stack {
     where
         D: serde::Deserializer<'de>,
     {
-        let mut data = Vec::<U256>::deserialize(deserializer)?;
+        let mut data = Vec::<StackValueData>::deserialize(deserializer)?;
         if data.len() > STACK_LIMIT {
             return Err(serde::de::Error::custom(std::format!(
                 "stack size exceeds limit: {} > {}",
@@ -402,7 +430,7 @@ mod tests {
         // fill capacity with non-zero values
         unsafe {
             stack.data.set_len(STACK_LIMIT);
-            stack.data.fill(U256::MAX);
+            stack.data.fill(StackValueData::Public(U256::MAX));
             stack.data.set_len(0);
         }
         f(&mut stack);
