@@ -320,7 +320,7 @@ mod test {
         interp.stack.push(U256::from(32)).unwrap();
         interp
             .stack
-            .push(U256::from(interp.return_data_buffer.len() - 32))
+            .push(U256::from(interp.return_data_buffer.len() - 32).into())
             .unwrap();
         interp.stack.push(U256::from(0)).unwrap();
         interp.step(&table, &mut host);
@@ -334,7 +334,7 @@ mod test {
         interp.stack.push(U256::from(32)).unwrap();
         interp
             .stack
-            .push(U256::from(interp.return_data_buffer.len()))
+            .push(U256::from(interp.return_data_buffer.len()).into())
             .unwrap();
         interp.stack.push(U256::from(0)).unwrap();
         interp.step(&table, &mut host);

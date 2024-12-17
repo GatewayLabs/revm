@@ -17,18 +17,12 @@ pub fn coinbase<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
 
 pub fn timestamp<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(
-        interpreter,
-        StackValueData::Public(*host.env().block.timestamp())
-    );
+    push!(interpreter, *host.env().block.timestamp());
 }
 
 pub fn block_number<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(
-        interpreter,
-        StackValueData::Public(*host.env().block.number())
-    );
+    push!(interpreter, *host.env().block.number());
 }
 
 pub fn difficulty<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
@@ -36,29 +30,20 @@ pub fn difficulty<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, h
     if SPEC::enabled(MERGE) {
         push_b256!(interpreter, *host.env().block.prevrandao().unwrap());
     } else {
-        push!(
-            interpreter,
-            StackValueData::Public(*host.env().block.difficulty())
-        );
+        push!(interpreter, *host.env().block.difficulty());
     }
 }
 
 pub fn gaslimit<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(
-        interpreter,
-        StackValueData::Public(*host.env().block.gas_limit())
-    );
+    push!(interpreter, *host.env().block.gas_limit());
 }
 
 /// EIP-3198: BASEFEE opcode
 pub fn basefee<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
     check!(interpreter, LONDON);
     gas!(interpreter, gas::BASE);
-    push!(
-        interpreter,
-        StackValueData::Public(*host.env().block.basefee())
-    );
+    push!(interpreter, *host.env().block.basefee());
 }
 
 /// EIP-7516: BLOBBASEFEE opcode
@@ -67,8 +52,6 @@ pub fn blob_basefee<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter,
     gas!(interpreter, gas::BASE);
     push!(
         interpreter,
-        StackValueData::Public(U256::from(
-            host.env().block.blob_gasprice().unwrap_or_default()
-        ))
+        U256::from(host.env().block.blob_gasprice().unwrap_or_default())
     );
 }

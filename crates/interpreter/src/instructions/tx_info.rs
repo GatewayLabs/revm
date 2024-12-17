@@ -8,10 +8,7 @@ pub fn gasprice<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
     gas!(interpreter, gas::BASE);
     let env = host.env();
     let basefee = *env.block.basefee();
-    push!(
-        interpreter,
-        StackValueData::Public(env.tx.effective_gas_price(basefee))
-    );
+    push!(interpreter, env.tx.effective_gas_price(basefee));
 }
 
 pub fn origin<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {

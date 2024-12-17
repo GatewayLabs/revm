@@ -262,7 +262,7 @@ impl Stack {
     /// returns `StackOverflow` error and leaves the stack unchanged.
     #[inline]
     pub fn push_b256(&mut self, value: B256) -> Result<(), InstructionResult> {
-        self.push(StackValueData::Public(value.into()))
+        self.push_stack_value_data(StackValueData::Public(value.into()))
     }
 
     /// Push a new value onto the stack.
@@ -270,7 +270,10 @@ impl Stack {
     /// If it will exceed the stack limit, returns `StackOverflow` error and leaves the stack
     /// unchanged.
     #[inline]
-    pub fn push(&mut self, value: StackValueData) -> Result<(), InstructionResult> {
+    pub fn push_stack_value_data(
+        &mut self,
+        value: StackValueData,
+    ) -> Result<(), InstructionResult> {
         // Allows the compiler to optimize out the `Vec::push` capacity check.
         assume!(self.data.capacity() == STACK_LIMIT);
         if self.data.len() == STACK_LIMIT {
@@ -278,6 +281,11 @@ impl Stack {
         }
         self.data.push(value);
         Ok(())
+    }
+
+    #[inline]
+    pub fn push(&mut self, value: U256) -> Result<(), InstructionResult> {
+        self.push_stack_value_data(StackValueData::Public(value))
     }
 
     /// Peek a value at given index for the stack, where the top of
@@ -540,7 +548,7 @@ mod tests {
         // Test cloning a partially filled stack
         let mut partial_stack = Stack::new();
         for i in 0..10 {
-            partial_stack.push(U256::from(i).into()).unwrap();
+            partial_stack.push(U256::from(i)).unwrap();
         }
         let mut cloned_partial = partial_stack.clone();
         assert_eq!(partial_stack, cloned_partial);
@@ -548,7 +556,7 @@ mod tests {
         assert_eq!(cloned_partial.data().capacity(), STACK_LIMIT);
 
         // Test that modifying the clone doesn't affect the original
-        cloned_partial.push(U256::from(100).into()).unwrap();
+        cloned_partial.push(U256::from(100)).unwrap();
         assert_ne!(partial_stack, cloned_partial);
         assert_eq!(partial_stack.len(), 10);
         assert_eq!(cloned_partial.len(), 11);
@@ -556,7 +564,7 @@ mod tests {
         // Test cloning a full stack
         let mut full_stack = Stack::new();
         for i in 0..STACK_LIMIT {
-            full_stack.push(U256::from(i).into()).unwrap();
+            full_stack.push(U256::from(i)).unwrap();
         }
         let mut cloned_full = full_stack.clone();
         assert_eq!(full_stack, cloned_full);
@@ -565,11 +573,11 @@ mod tests {
 
         // Test push to the full original or cloned stack should return StackOverflow
         assert_eq!(
-            full_stack.push(U256::from(100).into()),
+            full_stack.push(U256::from(100)),
             Err(InstructionResult::StackOverflow)
         );
         assert_eq!(
-            cloned_full.push(U256::from(100).into()),
+            cloned_full.push(U256::from(100)),
             Err(InstructionResult::StackOverflow)
         );
     }

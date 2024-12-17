@@ -1,4 +1,4 @@
-use crate::{gas, interpreter::StackValueData, Host, Interpreter};
+use crate::{gas, Host, Interpreter};
 use core::cmp::max;
 use primitives::U256;
 use specification::hardfork::Spec;
