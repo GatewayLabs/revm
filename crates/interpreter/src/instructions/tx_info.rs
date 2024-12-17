@@ -1,4 +1,4 @@
-use crate::{gas, Host, Interpreter};
+use crate::{gas, interpreter::StackValueData, Host, Interpreter};
 use primitives::U256;
 use specification::hardfork::Spec;
 use transaction::Eip4844Tx;
@@ -8,7 +8,10 @@ pub fn gasprice<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
     gas!(interpreter, gas::BASE);
     let env = host.env();
     let basefee = *env.block.basefee();
-    push!(interpreter, env.tx.effective_gas_price(basefee));
+    push!(
+        interpreter,
+        StackValueData::Public(env.tx.effective_gas_price(basefee))
+    );
 }
 
 pub fn origin<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
@@ -34,6 +37,6 @@ pub fn blob_hash<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
             .map(|b| U256::from_be_bytes(*b))
             .unwrap_or(U256::ZERO)
     } else {
-        U256::ZERO
+        StackValueData::Public(U256::ZERO)
     };
 }

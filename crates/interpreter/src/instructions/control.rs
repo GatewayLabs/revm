@@ -19,7 +19,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     // In spec it is +3 but pointer is already incremented in
     // `Interpreter::step` so for revm is +2.
     let mut offset = 2;
-    if !condition.is_zero() {
+    if !condition.to_u256().is_zero() {
         offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
     }
 
@@ -54,14 +54,14 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop!(interpreter, target);
-    jump_inner(interpreter, target);
+    jump_inner(interpreter, target.into());
 }
 
 pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
     pop!(interpreter, target, cond);
-    if !cond.is_zero() {
-        jump_inner(interpreter, target);
+    if !cond.to_u256().is_zero() {
+        jump_inner(interpreter, target.into());
     }
 }
 
@@ -148,7 +148,10 @@ pub fn jumpf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
-    push!(interpreter, U256::from(interpreter.program_counter() - 1));
+    push!(
+        interpreter,
+        U256::from(interpreter.program_counter() - 1).into()
+    );
 }
 
 #[inline]
@@ -235,8 +238,8 @@ mod test {
             [RJUMPI, 0x00, 0x03, RJUMPI, 0x00, 0x01, STOP, STOP].into(),
         ));
         interp.is_eof = true;
-        interp.stack.push(U256::from(1)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.gas = Gas::new(10000);
 
         // dont jump
@@ -273,7 +276,7 @@ mod test {
         interp.gas = Gas::new(1000);
 
         // more then max_index
-        interp.stack.push(U256::from(10)).unwrap();
+        interp.stack.push(U256::from(10).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 6);
 
@@ -285,7 +288,7 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to first index of vtable
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 7);
 
@@ -296,7 +299,7 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to second index of vtable
-        interp.stack.push(U256::from(1)).unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 8);
     }

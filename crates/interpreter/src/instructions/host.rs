@@ -27,7 +27,7 @@ pub fn balance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host
             20
         }
     );
-    push!(interpreter, balance.data);
+    push!(interpreter, balance.data.into());
 }
 
 /// EIP-1884: Repricing for trie-size-dependent opcodes

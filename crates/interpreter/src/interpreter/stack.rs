@@ -7,10 +7,48 @@ use std::vec::Vec;
 /// EVM interpreter stack limit.
 pub const STACK_LIMIT: usize = 1024;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, serde::Serialize)]
+// Stack value data. Supports both public and private values.
+// - Private values are represented as a vector of gate input indices created via circuit builder
+// - Public values are represented as U256
+#[derive(Debug, PartialEq, Eq, Hash, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StackValueData {
     Private(GateIndexVec),
     Public(U256),
+}
+
+pub trait IntoStackValue {
+    fn into_stack_value(self) -> StackValueData;
+}
+
+impl IntoStackValue for U256 {
+    fn into_stack_value(self) -> StackValueData {
+        StackValueData::Public(self)
+    }
+}
+
+impl Into<U256> for StackValueData {
+    fn into(self) -> U256 {
+        match self {
+            StackValueData::Public(value) => value,
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+        }
+    }
+}
+
+// Add From implementation for ergonomics
+impl From<U256> for StackValueData {
+    fn from(value: U256) -> Self {
+        StackValueData::Public(value)
+    }
+}
+
+impl StackValueData {
+    pub fn to_u256(&self) -> U256 {
+        match self {
+            StackValueData::Public(value) => *value,
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+        }
+    }
 }
 
 /// EVM stack with [STACK_LIMIT] capacity of words.
@@ -28,7 +66,7 @@ impl fmt::Display for Stack {
             if i > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{x}")?;
+            write!(f, "{:?}", x)?;
         }
         f.write_str("]")
     }
@@ -248,7 +286,7 @@ impl Stack {
     #[inline]
     pub fn peek(&self, no_from_top: usize) -> Result<StackValueData, InstructionResult> {
         if self.data.len() > no_from_top {
-            Ok(self.data[self.data.len() - no_from_top - 1])
+            Ok(self.data[self.data.len() - no_from_top - 1].clone())
         } else {
             Err(InstructionResult::StackUnderflow)
         }
@@ -318,8 +356,8 @@ impl Stack {
         Ok(())
     }
 
-    /// Pushes an arbitrary length slice of bytes onto the stack, padding the last word with zeros
-    /// if necessary.
+    /// Pushes an arbitrary length slice of bytes onto the stack as StackValueData::Public,
+    /// padding the last word with zeros if necessary.
     #[inline]
     pub fn push_slice(&mut self, slice: &[u8]) -> Result<(), InstructionResult> {
         if slice.is_empty() {
@@ -334,6 +372,7 @@ impl Stack {
 
         // SAFETY: length checked above.
         unsafe {
+            let mut tmp: Vec<u8> = vec![0u8; 32];
             let dst = self.data.as_mut_ptr().add(self.data.len()).cast::<u64>();
             self.data.set_len(new_len);
 
@@ -343,8 +382,6 @@ impl Stack {
             let words = slice.chunks_exact(32);
             let partial_last_word = words.remainder();
             for word in words {
-                // Note: we unroll `U256::from_be_bytes` here to write directly into the buffer,
-                // instead of creating a 32 byte array on the stack and then copying it over.
                 for l in word.rchunks_exact(8) {
                     dst.add(i).write(u64::from_be_bytes(l.try_into().unwrap()));
                     i += 1;
@@ -378,6 +415,12 @@ impl Stack {
             if m != 0 {
                 dst.add(i).write_bytes(0, 4 - m);
             }
+
+            // Convert the last 32 bytes to U256 and push as StackValueData::Public
+            let copy_len = std::cmp::min(32, slice.len());
+            tmp[32 - copy_len..].copy_from_slice(&slice[..copy_len]);
+            let value = U256::from_be_slice(&tmp);
+            self.data.push(StackValueData::Public(value));
         }
 
         Ok(())
@@ -447,38 +490,41 @@ mod tests {
         // one word
         run(|stack| {
             stack.push_slice(&[42]).unwrap();
-            assert_eq!(stack.data, [U256::from(42)]);
+            assert_eq!(stack.data, [U256::from(42).into()]);
         });
 
         let n = 0x1111_2222_3333_4444_5555_6666_7777_8888_u128;
         run(|stack| {
             stack.push_slice(&n.to_be_bytes()).unwrap();
-            assert_eq!(stack.data, [U256::from(n)]);
+            assert_eq!(stack.data, [U256::from(n).into()]);
         });
 
         // more than one word
         run(|stack| {
             let b = [U256::from(n).to_be_bytes::<32>(); 2].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::from(n); 2]);
+            assert_eq!(stack.data, vec![StackValueData::Public(U256::from(n)); 2]);
         });
 
         run(|stack| {
             let b = [&[0; 32][..], &[42u8]].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::from(42)]);
+            assert_eq!(stack.data, [U256::ZERO.into(), U256::from(42).into()]);
         });
 
         run(|stack| {
             let b = [&[0; 32][..], &n.to_be_bytes()].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::from(n)]);
+            assert_eq!(stack.data, [U256::ZERO.into(), U256::from(n).into()]);
         });
 
         run(|stack| {
             let b = [&[0; 64][..], &n.to_be_bytes()].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::ZERO, U256::from(n)]);
+            assert_eq!(
+                stack.data,
+                [U256::ZERO.into(), U256::ZERO.into(), U256::from(n).into()]
+            );
         });
     }
 
@@ -494,7 +540,7 @@ mod tests {
         // Test cloning a partially filled stack
         let mut partial_stack = Stack::new();
         for i in 0..10 {
-            partial_stack.push(U256::from(i)).unwrap();
+            partial_stack.push(U256::from(i).into()).unwrap();
         }
         let mut cloned_partial = partial_stack.clone();
         assert_eq!(partial_stack, cloned_partial);
@@ -502,7 +548,7 @@ mod tests {
         assert_eq!(cloned_partial.data().capacity(), STACK_LIMIT);
 
         // Test that modifying the clone doesn't affect the original
-        cloned_partial.push(U256::from(100)).unwrap();
+        cloned_partial.push(U256::from(100).into()).unwrap();
         assert_ne!(partial_stack, cloned_partial);
         assert_eq!(partial_stack.len(), 10);
         assert_eq!(cloned_partial.len(), 11);
@@ -510,7 +556,7 @@ mod tests {
         // Test cloning a full stack
         let mut full_stack = Stack::new();
         for i in 0..STACK_LIMIT {
-            full_stack.push(U256::from(i)).unwrap();
+            full_stack.push(U256::from(i).into()).unwrap();
         }
         let mut cloned_full = full_stack.clone();
         assert_eq!(full_stack, cloned_full);
@@ -519,11 +565,11 @@ mod tests {
 
         // Test push to the full original or cloned stack should return StackOverflow
         assert_eq!(
-            full_stack.push(U256::from(100)),
+            full_stack.push(U256::from(100).into()),
             Err(InstructionResult::StackOverflow)
         );
         assert_eq!(
-            cloned_full.push(U256::from(100)),
+            cloned_full.push(U256::from(100).into()),
             Err(InstructionResult::StackOverflow)
         );
     }

@@ -34,7 +34,7 @@ pub fn eofcreate<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
         .expect("EOF is checked");
 
     // resize memory and get return range.
-    let Some(input_range) = resize_memory(interpreter, data_offset, data_size) else {
+    let Some(input_range) = resize_memory(interpreter, data_offset.into(), data_size.into()) else {
         return;
     };
 
@@ -64,7 +64,7 @@ pub fn eofcreate<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
     let created_address = interpreter
         .contract
         .target_address
-        .create2(salt.to_be_bytes(), keccak256(sub_container));
+        .create2(salt.to_u256().to_be_bytes(), keccak256(sub_container));
 
     let gas_limit = interpreter.gas().remaining_63_of_64_parts();
     gas!(interpreter, gas_limit);
@@ -74,7 +74,7 @@ pub fn eofcreate<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
         EOFCreateInputs::new_opcode(
             interpreter.contract.target_address,
             created_address,
-            value,
+            value.into(),
             eof,
             gas_limit,
             input,
@@ -149,7 +149,7 @@ pub fn return_contract<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &
 pub fn extcall_input(interpreter: &mut Interpreter) -> Option<Bytes> {
     pop_ret!(interpreter, input_offset, input_size, None);
 
-    let return_memory_offset = resize_memory(interpreter, input_offset, input_size)?;
+    let return_memory_offset = resize_memory(interpreter, input_offset.into(), input_size.into())?;
 
     if return_memory_offset.is_empty() {
         return Some(Bytes::new());
@@ -189,7 +189,7 @@ pub fn extcall_gas_calc<H: Host + ?Sized>(
     if gas_limit < MIN_CALLEE_GAS {
         // Push 1 to stack to indicate that call light failed.
         // It is safe to ignore stack overflow error as we already popped multiple values from stack.
-        let _ = interpreter.stack_mut().push(U256::from(1));
+        let _ = interpreter.stack_mut().push(U256::from(1).into());
         interpreter.return_data_buffer.clear();
         // Return none to continue execution.
         return None;
@@ -205,7 +205,7 @@ pub fn extcall_gas_calc<H: Host + ?Sized>(
 #[inline]
 pub fn pop_extcall_target_address(interpreter: &mut Interpreter) -> Option<Address> {
     pop_ret!(interpreter, target_address, None);
-    let target_address = B256::from(target_address);
+    let target_address = B256::from(target_address.to_u256());
     // Check if target is left padded with zeroes.
     if target_address[..12].iter().any(|i| *i != 0) {
         interpreter.instruction_result = InstructionResult::InvalidEXTCALLTarget;
@@ -229,7 +229,7 @@ pub fn extcall<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host
     };
 
     pop!(interpreter, value);
-    let has_transfer = !value.is_zero();
+    let has_transfer = !value.to_u256().is_zero();
     if interpreter.is_static && has_transfer {
         interpreter.instruction_result = InstructionResult::CallNotAllowedInsideStatic;
         return;
@@ -247,7 +247,7 @@ pub fn extcall<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host
             target_address,
             caller: interpreter.contract.target_address,
             bytecode_address: target_address,
-            value: CallValue::Transfer(value),
+            value: CallValue::Transfer(value.into()),
             scheme: CallScheme::ExtCall,
             is_static: interpreter.is_static,
             is_eof: true,
@@ -366,7 +366,7 @@ pub fn create<const IS_CREATE2: bool, H: Host + ?Sized, SPEC: Spec>(
         pop!(interpreter, salt);
         // SAFETY: len is reasonable in size as gas for it is already deducted.
         gas_or_fail!(interpreter, gas::create2_cost(len.try_into().unwrap()));
-        CreateScheme::Create2 { salt }
+        CreateScheme::Create2 { salt: salt.into() }
     } else {
         gas!(interpreter, gas::CREATE);
         CreateScheme::Create
@@ -386,7 +386,7 @@ pub fn create<const IS_CREATE2: bool, H: Host + ?Sized, SPEC: Spec>(
         InterpreterAction::NewFrame(NewFrameAction::Create(Box::new(CreateInputs {
             caller: interpreter.contract.target_address,
             scheme,
-            value,
+            value: value.into(),
             init_code: code,
             gas_limit,
         })));
@@ -397,10 +397,10 @@ pub fn call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
 
     pop!(interpreter, value);
-    let has_transfer = !value.is_zero();
+    let has_transfer = !value.to_u256().is_zero();
     if interpreter.is_static && has_transfer {
         interpreter.instruction_result = InstructionResult::CallNotAllowedInsideStatic;
         return;
@@ -435,7 +435,7 @@ pub fn call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &
             target_address: to,
             caller: interpreter.contract.target_address,
             bytecode_address: to,
-            value: CallValue::Transfer(value),
+            value: CallValue::Transfer(value.into()),
             scheme: CallScheme::Call,
             is_static: interpreter.is_static,
             is_eof: false,
@@ -448,7 +448,7 @@ pub fn call_code<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
 
     pop!(interpreter, value);
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
@@ -461,16 +461,19 @@ pub fn call_code<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
     };
     // set is_empty to false as we are not creating this account.
     load.is_empty = false;
-    let Some(mut gas_limit) =
-        calc_call_gas::<SPEC>(interpreter, load, !value.is_zero(), local_gas_limit)
-    else {
+    let Some(mut gas_limit) = calc_call_gas::<SPEC>(
+        interpreter,
+        load,
+        !value.to_u256().is_zero(),
+        local_gas_limit,
+    ) else {
         return;
     };
 
     gas!(interpreter, gas_limit);
 
     // add call stipend if there is value to be transferred.
-    if !value.is_zero() {
+    if !value.to_u256().is_zero() {
         gas_limit = gas_limit.saturating_add(gas::CALL_STIPEND);
     }
 
@@ -482,7 +485,7 @@ pub fn call_code<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
             target_address: interpreter.contract.target_address,
             caller: interpreter.contract.target_address,
             bytecode_address: to,
-            value: CallValue::Transfer(value),
+            value: CallValue::Transfer(value.into()),
             scheme: CallScheme::CallCode,
             is_static: interpreter.is_static,
             is_eof: false,
@@ -496,7 +499,7 @@ pub fn delegate_call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
 
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
         return;
@@ -536,7 +539,7 @@ pub fn static_call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
 
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
         return;
