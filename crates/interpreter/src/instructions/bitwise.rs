@@ -139,11 +139,11 @@ pub fn shr<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
     pop_top!(interpreter, op1, op2);
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
-        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
         let shifted_op2 = garbled_op2 >> shift;
-        garbled_uint_to_ruint(&shifted_op2)
+        garbled_uint_to_ruint(&shifted_op2.into()).into()
     } else {
-        U256::ZERO
+        U256::ZERO.into()
     }
 }
 
@@ -156,11 +156,11 @@ pub fn sar<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
 
     let shift = as_usize_saturated!(op1);
     *op2 = if shift < 256 {
-        op2.arithmetic_shr(shift)
-    } else if op2.bit(255) {
-        U256::MAX
+        op2.to_u256().arithmetic_shr(shift).into()
+    } else if op2.to_u256().bit(255) {
+        U256::MAX.into()
     } else {
-        U256::ZERO
+        U256::ZERO.into()
     };
 }
 
@@ -249,7 +249,7 @@ mod tests {
             push!(interpreter, test.shift);
             shl::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
-            assert_eq!(res, test.expected);
+            assert_eq!(res, test.expected.into());
         }
     }
 
@@ -330,7 +330,7 @@ mod tests {
             push!(interpreter, test.shift);
             shr::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
-            assert_eq!(res, test.expected);
+            assert_eq!(res, test.expected.into());
         }
     }
 
@@ -436,7 +436,7 @@ mod tests {
             push!(interpreter, test.shift);
             sar::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
-            assert_eq!(res, test.expected);
+            assert_eq!(res, test.expected.into());
         }
     }
 
@@ -471,7 +471,7 @@ mod tests {
             push!(interpreter, U256::from(test.index));
             byte(&mut interpreter, &mut host);
             pop!(interpreter, res);
-            assert_eq!(res, test.expected, "Failed at index: {}", test.index);
+            assert_eq!(res, test.expected.into(), "Failed at index: {}", test.index);
         }
     }
 }
