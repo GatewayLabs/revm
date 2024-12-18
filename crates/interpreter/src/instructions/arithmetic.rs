@@ -14,7 +14,7 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2);
 
     let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op1.add(garbled_op2);
 
     *op2 = garbled_uint_to_ruint(&result).into();
@@ -25,7 +25,7 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2);
 
     let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op1.mul(garbled_op2);
 
     *op2 = garbled_uint_to_ruint(&result).into();
@@ -36,7 +36,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2);
 
     let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op2.sub(garbled_op1);
 
     *op2 = garbled_uint_to_ruint(&result).into();
@@ -45,9 +45,9 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    if !op2.into().is_zero() {
+    if !op2.to_u256().is_zero() {
         let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-        let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
+        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
         let result = garbled_op1.div(garbled_op2);
 
         *op2 = garbled_uint_to_ruint(&result).into();
@@ -58,16 +58,16 @@ pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    let result = i256_div(op1.into(), *op2.into());
+    let result = i256_div(op1.into(), op2.to_u256());
     *op2 = result.into();
 }
 
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    if !op2.is_zero() {
-        let garbled_op1 = ruint_to_garbled_uint(&op1);
-        let garbled_op2 = ruint_to_garbled_uint(&op2);
+    if !op2.to_u256().is_zero() {
+        let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
         let result = garbled_op1.rem(garbled_op2);
 
         *op2 = garbled_uint_to_ruint(&result).into();
@@ -78,28 +78,28 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn smod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = i256_mod(op1, *op2)
+    *op2 = i256_mod(op1.into(), op2.to_u256()).into()
 }
 
 //TODO: Implement circuit for signed addition
 pub fn addmod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop_top!(interpreter, op1, op2, op3);
-    *op3 = op1.add_mod(op2, *op3)
+    *op3 = op1.to_u256().add_mod(op2.into(), op3.to_u256()).into()
 }
 
 //TODO: Implement circuit for signed multiplication
 pub fn mulmod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop_top!(interpreter, op1, op2, op3);
-    *op3 = op1.mul_mod(op2, *op3)
+    *op3 = op1.to_u256().mul_mod(op2.into(), op3.to_u256()).into()
 }
 
 //TODO?: Implement circuit for signed exponentiation
 pub fn exp<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2);
-    gas_or_fail!(interpreter, gas::exp_cost(SPEC::SPEC_ID, *op2));
-    *op2 = op1.pow(*op2);
+    gas_or_fail!(interpreter, gas::exp_cost(SPEC::SPEC_ID, op2.to_u256()));
+    *op2 = op1.to_u256().pow(op2.to_u256()).into();
 }
 
 /// Implements the `SIGNEXTEND` opcode as defined in the Ethereum Yellow Paper.
@@ -122,13 +122,18 @@ pub fn exp<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
 pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, ext, x);
+
+    let uint_ext = ext.to_u256();
+    let uint_x = x.to_u256();
+
     // For 31 we also don't need to do anything.
-    if ext < U256::from(31) {
-        let ext = ext.as_limbs()[0];
-        let bit_index = (8 * ext + 7) as usize;
-        let bit = x.bit(bit_index);
+    if uint_ext < U256::from(31) {
+        let uint_ext = uint_ext.as_limbs()[0];
+        let bit_index = (8 * uint_ext + 7) as usize;
+        let bit = uint_x.bit(bit_index);
         let mask = (U256::from(1) << bit_index) - U256::from(1);
-        *x = if bit { *x | !mask } else { *x & mask };
+        let result = if bit { uint_x | !mask } else { uint_x & mask };
+        *x = result.into();
     }
 }
 
@@ -174,7 +179,7 @@ mod tests {
         let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(18u64);
 
-        assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result.into());
     }
 
     #[test]
@@ -199,7 +204,7 @@ mod tests {
         let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(70u64);
 
-        assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result.into());
     }
 
     #[test]
@@ -228,7 +233,7 @@ mod tests {
         let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(2000u64);
 
-        assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result.into());
     }
 
     #[test]
@@ -257,7 +262,7 @@ mod tests {
         let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(5u64);
 
-        assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result.into());
     }
 
     #[test]
@@ -286,6 +291,6 @@ mod tests {
         let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(0u64);
 
-        assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result.into());
     }
 }
