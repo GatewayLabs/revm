@@ -124,11 +124,11 @@ pub fn shl<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
     let shift = as_usize_saturated!(op1);
 
     *op2 = if shift < 256 {
-        let garbled_op2 = ruint_to_garbled_uint(&op2);
+        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
         let shifted_op2 = garbled_op2 << shift;
-        garbled_uint_to_ruint(&shifted_op2)
+        garbled_uint_to_ruint(&shifted_op2.into()).into()
     } else {
-        U256::ZERO
+        U256::ZERO.into()
     }
 }
 
