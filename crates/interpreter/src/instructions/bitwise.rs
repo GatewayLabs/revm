@@ -12,93 +12,93 @@ pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
 
-    *op2 = U256::from(garbled_op1.lt(&garbled_op2));
+    *op2 = U256::from(garbled_op1.lt(&garbled_op2)).into();
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
 
-    *op2 = U256::from(garbled_op1.gt(&garbled_op2));
+    *op2 = U256::from(garbled_op1.gt(&garbled_op2)).into();
 }
 
 // TODO: Implement in garbled circuits
 pub fn slt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Less);
+    *op2 = U256::from(i256_cmp(&op1.into(), &op2.to_u256()) == Ordering::Less).into();
 }
 
 // TODO: Implement in garbled circuits
 pub fn sgt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = U256::from(i256_cmp(&op1, op2) == Ordering::Greater);
+    *op2 = U256::from(i256_cmp(&op1.into(), &op2.to_u256()) == Ordering::Greater).into();
 }
 
 pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
 
-    *op2 = U256::from(garbled_op1.eq(&garbled_op2));
+    *op2 = U256::from(garbled_op1.eq(&garbled_op2)).into();
 }
 
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
-    *op1 = U256::from(op1.is_zero());
+    *op1 = U256::from(op1.to_u256().is_zero()).into();
 }
 
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op1 & garbled_op2;
 
-    *op2 = garbled_uint_to_ruint(&result);
+    *op2 = garbled_uint_to_ruint(&result).into();
 }
 
 pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op1 | garbled_op2;
 
-    *op2 = garbled_uint_to_ruint(&result);
+    *op2 = garbled_uint_to_ruint(&result).into();
 }
 
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
-    let garbled_op2 = ruint_to_garbled_uint(&op2);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
     let result = garbled_op1 ^ garbled_op2;
 
-    *op2 = garbled_uint_to_ruint(&result);
+    *op2 = garbled_uint_to_ruint(&result).into();
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1);
+    let garbled_op1 = ruint_to_garbled_uint(&op1.to_u256());
     let result = !garbled_op1;
 
-    *op1 = garbled_uint_to_ruint(&result);
+    *op1 = garbled_uint_to_ruint(&result).into();
 }
 
 // TODO: Implement in garbled circuits
@@ -109,9 +109,9 @@ pub fn byte<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let o1 = as_usize_saturated!(op1);
     *op2 = if o1 < 32 {
         // `31 - o1` because `byte` returns LE, while we want BE
-        U256::from(op2.byte(31 - o1))
+        U256::from(op2.to_u256().byte(31 - o1)).into()
     } else {
-        U256::ZERO
+        U256::ZERO.into()
     };
 }
 
