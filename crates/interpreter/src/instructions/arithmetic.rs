@@ -45,7 +45,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    if !op2.into().is_zero() {
+    if !op2.to_u256().is_zero() {
         let garbled_op1 = ruint_to_garbled_uint(&op1.into());
         let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
         let result = garbled_op1.div(garbled_op2);
@@ -58,16 +58,16 @@ pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    let result = i256_div(op1.into(), *op2.into());
+    let result = i256_div(op1.into(), op2.clone().into());
     *op2 = result.into();
 }
 
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    if !op2.is_zero() {
-        let garbled_op1 = ruint_to_garbled_uint(&op1);
-        let garbled_op2 = ruint_to_garbled_uint(&op2);
+    if !op2.to_u256().is_zero() {
+        let garbled_op1 = ruint_to_garbled_uint(&op1.into());
+        let garbled_op2 = ruint_to_garbled_uint(&op2.clone().into());
         let result = garbled_op1.rem(garbled_op2);
 
         *op2 = garbled_uint_to_ruint(&result).into();
@@ -78,7 +78,7 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn smod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = i256_mod(op1, *op2)
+    *op2 = i256_mod(op1.into(), op2.clone().into()).into();
 }
 
 //TODO: Implement circuit for signed addition
