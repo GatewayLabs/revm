@@ -92,6 +92,7 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 

@@ -2,6 +2,7 @@ use super::Interpreter;
 use crate::{
     Contract, FunctionStack, Gas, InstructionResult, InterpreterAction, SharedMemory, Stack,
 };
+use compute::prelude::WRK17CircuitBuilder;
 use primitives::Bytes;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -21,6 +22,7 @@ struct InterpreterSerde<'a> {
     return_data_buffer: &'a Bytes,
     is_static: bool,
     next_action: &'a InterpreterAction,
+    circuit_builder: &'a WRK17CircuitBuilder,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +41,7 @@ struct InterpreterDe {
     return_data_buffer: Bytes,
     is_static: bool,
     next_action: InterpreterAction,
+    circuit_builder: WRK17CircuitBuilder,
 }
 
 impl Serialize for Interpreter {
@@ -60,6 +63,7 @@ impl Serialize for Interpreter {
             return_data_buffer: &self.return_data_buffer,
             is_static: self.is_static,
             next_action: &self.next_action,
+            circuit_builder: &self.circuit_builder,
         }
         .serialize(serializer)
     }
@@ -84,6 +88,7 @@ impl<'de> Deserialize<'de> for Interpreter {
             return_data_buffer,
             is_static,
             next_action,
+            circuit_builder,
         } = InterpreterDe::deserialize(deserializer)?;
 
         // Reconstruct the instruction pointer from usize
@@ -108,6 +113,7 @@ impl<'de> Deserialize<'de> for Interpreter {
             return_data_buffer,
             is_static,
             next_action,
+            circuit_builder,
         })
     }
 }
