@@ -52,7 +52,7 @@ pub fn data_size<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
     gas!(interpreter, BASE);
     let data_size = interpreter.eof().expect("eof").header.data_size;
 
-    push!(interpreter, U256::from(data_size).into());
+    push!(interpreter, U256::from(data_size));
 }
 
 pub fn data_copy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

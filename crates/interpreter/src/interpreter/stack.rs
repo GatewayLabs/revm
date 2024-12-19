@@ -1,5 +1,5 @@
-use crate::InstructionResult;
-use compute::prelude::GateIndexVec;
+use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
+use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use core::{fmt, ptr};
 use primitives::{B256, U256};
 use std::vec::Vec;
@@ -35,10 +35,35 @@ impl Into<U256> for StackValueData {
     }
 }
 
+impl Into<GateIndexVec> for StackValueData {
+    fn into(self) -> GateIndexVec {
+        match self {
+            StackValueData::Public(_) => panic!("Cannot convert public value to GateIndexVec"),
+            StackValueData::Private(value) => value,
+        }
+    }
+}
+
+impl StackValueData {
+    pub fn to_garbled_value(&self, circuit_builder: &mut WRK17CircuitBuilder) -> GateIndexVec {
+        match self {
+            StackValueData::Private(value) => value.clone(),
+            StackValueData::Public(value) => circuit_builder.input(&ruint_to_garbled_uint(value)),
+        }
+    }
+}
+
 // Add From implementation for ergonomics
+
 impl From<U256> for StackValueData {
     fn from(value: U256) -> Self {
         StackValueData::Public(value)
+    }
+}
+
+impl From<GateIndexVec> for StackValueData {
+    fn from(value: GateIndexVec) -> Self {
+        StackValueData::Private(value)
     }
 }
 

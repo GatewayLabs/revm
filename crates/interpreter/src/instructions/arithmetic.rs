@@ -4,8 +4,10 @@ use super::i256::{i256_div, i256_mod};
 use crate::{
     gas,
     instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
-    Host, Interpreter,
+    interpreter::StackValueData,
+    Host, Interpreter, Stack,
 };
+use compute::prelude::CircuitExecutor;
 use primitives::U256;
 use specification::hardfork::Spec;
 
@@ -13,11 +15,18 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-    let result = garbled_op1.add(garbled_op2);
+    // verificar se op1 é StackDataValue::Public ou StackDataValue::Private
+    // caso seja public, converter para input com o interpreter.circuit_builder.input
 
-    *op2 = garbled_uint_to_ruint(&result).into();
+    let garbled_op1 = op1.to_garbled_value(&mut interpreter.circuit_builder);
+    let garbled_op2 = op2.to_garbled_value(&mut interpreter.circuit_builder);
+
+    // cria o circuito de soma usando o circuit builder
+
+    let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
+
+    // Salvar sempre como StackDataValue::Private
+    *op2 = StackValueData::Private(result);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

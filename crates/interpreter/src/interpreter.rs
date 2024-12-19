@@ -4,6 +4,7 @@ pub mod serde;
 mod shared_memory;
 mod stack;
 
+use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
@@ -60,7 +61,7 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
-    // pub circuit_builder: WRK17CircuitBuilder,
+    pub circuit_builder: WRK17CircuitBuilder,
 }
 
 impl Default for Interpreter {
@@ -215,14 +216,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, StackValueData::Public(U256::ZERO));
+                push!(self, U256::ZERO);
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_eofcreate_outcome");
             }
             _ => {
-                push!(self, StackValueData::Public(U256::ZERO))
+                push!(self, U256::ZERO)
             }
         }
     }
@@ -272,9 +273,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        StackValueData::Public(U256::ZERO)
+                        U256::ZERO
                     } else {
-                        StackValueData::Public(U256::from(1))
+                        U256::from(1)
                     }
                 );
             }
@@ -284,9 +285,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        StackValueData::Public(U256::from(1))
+                        U256::from(1)
                     } else {
-                        StackValueData::Public(U256::ZERO)
+                        U256::ZERO
                     }
                 );
             }
@@ -297,9 +298,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        StackValueData::Public(U256::from(2))
+                        U256::from(2)
                     } else {
-                        StackValueData::Public(U256::ZERO)
+                        U256::ZERO
                     }
                 );
             }

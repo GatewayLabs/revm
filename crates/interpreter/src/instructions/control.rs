@@ -148,10 +148,7 @@ pub fn jumpf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
-    push!(
-        interpreter,
-        U256::from(interpreter.program_counter() - 1).into()
-    );
+    push!(interpreter, U256::from(interpreter.program_counter() - 1));
 }
 
 #[inline]

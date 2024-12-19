@@ -115,7 +115,7 @@ pub fn blockhash<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
-    *number = U256::from_be_bytes(hash.0);
+    *number = U256::from_be_bytes(hash.0).into();
 }
 
 pub fn sload<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
