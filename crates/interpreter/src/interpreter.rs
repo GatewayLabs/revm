@@ -182,14 +182,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, StackValueData::Public(U256::ZERO));
+                push!(self, StackValueData::Public(U256::ZERO).into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_create_outcome");
             }
             _ => {
-                push!(self, StackValueData::Public(U256::ZERO))
+                push!(self, StackValueData::Public(U256::ZERO).into())
             }
         }
     }
