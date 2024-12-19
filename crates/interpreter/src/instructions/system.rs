@@ -1,4 +1,4 @@
-use crate::{gas, Host, InstructionResult, Interpreter};
+use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
 use core::ptr;
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
@@ -172,7 +172,7 @@ pub fn gas<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 // common logic for copying data from a source buffer to the EVM's memory
 pub fn memory_resize(
     interpreter: &mut Interpreter,
-    memory_offset: U256,
+    memory_offset: StackValueData,
     len: usize,
 ) -> Option<usize> {
     // safe to cast usize to u64
@@ -180,7 +180,7 @@ pub fn memory_resize(
     if len == 0 {
         return None;
     }
-    let memory_offset = as_usize_or_fail_ret!(interpreter, memory_offset, None);
+    let memory_offset = as_usize_or_fail_ret!(interpreter, memory_offset.to_u256(), None);
     resize_memory!(interpreter, memory_offset, len, None);
 
     Some(memory_offset)
@@ -219,7 +219,7 @@ mod test {
         interp.step(&table, &mut host);
         assert_eq!(
             interp.stack.data(),
-            &vec![U256::from_limbs([0x01, 0x02, 0x03, 0x04])]
+            &vec![U256::from_limbs([0x01, 0x02, 0x03, 0x04]).into()]
         );
 
         let _ = interp.stack.pop();
@@ -229,7 +229,7 @@ mod test {
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
             interp.stack.data(),
-            &vec![U256::from_limbs([0x0100, 0x0200, 0x0300, 0x0400])]
+            &vec![U256::from_limbs([0x0100, 0x0200, 0x0300, 0x0400]).into()]
         );
 
         let _ = interp.stack.pop();
@@ -238,7 +238,7 @@ mod test {
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
             interp.stack.data(),
-            &vec![U256::from_limbs([0x00, 0x00, 0x00, 0x00])]
+            &vec![U256::from_limbs([0x00, 0x00, 0x00, 0x00]).into()]
         );
 
         // Offset right at the boundary of the return data buffer size
@@ -250,7 +250,7 @@ mod test {
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
             interp.stack.data(),
-            &vec![U256::from_limbs([0x00, 0x00, 0x00, 0x00])]
+            &vec![U256::from_limbs([0x00, 0x00, 0x00, 0x00]).into()]
         );
     }
 

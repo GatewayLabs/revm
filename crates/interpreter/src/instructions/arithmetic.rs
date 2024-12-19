@@ -1,11 +1,11 @@
-use core::ops::{Add, Div, Mul, Rem, Sub};
+use core::ops::{Div, Mul, Rem, Sub};
 
 use super::i256::{i256_div, i256_mod};
 use crate::{
     gas,
     instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
     interpreter::StackValueData,
-    Host, Interpreter, Stack,
+    Host, Interpreter,
 };
 use compute::prelude::CircuitExecutor;
 use primitives::U256;

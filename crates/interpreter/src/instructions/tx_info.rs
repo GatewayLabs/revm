@@ -27,12 +27,14 @@ pub fn blob_hash<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
     let i = as_usize_saturated!(index);
     let tx = &host.env().tx;
     *index = if tx.tx_type().into() == TransactionType::Eip4844 {
-        tx.eip4844()
-            .blob_versioned_hashes()
-            .get(i)
-            .cloned()
-            .map(|b| U256::from_be_bytes(*b))
-            .unwrap_or(U256::ZERO)
+        StackValueData::Public(
+            tx.eip4844()
+                .blob_versioned_hashes()
+                .get(i)
+                .cloned()
+                .map(|b| U256::from_be_bytes(*b))
+                .unwrap_or(U256::ZERO),
+        )
     } else {
         StackValueData::Public(U256::ZERO)
     };

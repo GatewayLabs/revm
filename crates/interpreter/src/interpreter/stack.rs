@@ -1,7 +1,8 @@
 use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use core::{fmt, ptr};
-use primitives::{B256, U256};
+use primitives::{FixedBytes, B256, U256};
+use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 /// EVM interpreter stack limit.
@@ -10,7 +11,7 @@ pub const STACK_LIMIT: usize = 1024;
 // Stack value data. Supports both public and private values.
 // - Private values are represented as a vector of gate input indices created via circuit builder
 // - Public values are represented as U256
-#[derive(Debug, PartialEq, Eq, Hash, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub enum StackValueData {
     Private(GateIndexVec),
     Public(U256),
@@ -67,6 +68,12 @@ impl From<GateIndexVec> for StackValueData {
     }
 }
 
+impl From<FixedBytes<32>> for StackValueData {
+    fn from(value: FixedBytes<32>) -> Self {
+        StackValueData::Public(value.into())
+    }
+}
+
 impl StackValueData {
     pub fn to_u256(&self) -> U256 {
         match self {
@@ -76,9 +83,18 @@ impl StackValueData {
     }
 }
 
+impl StackValueData {
+    pub const fn as_limbs(&self) -> &[u64; U256::LIMBS] {
+        match self {
+            StackValueData::Public(value) => value.as_limbs(),
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+        }
+    }
+}
+
 /// EVM stack with [STACK_LIMIT] capacity of words.
 #[derive(Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Stack {
     /// The underlying data of the stack.
     data: Vec<StackValueData>,
@@ -140,6 +156,7 @@ impl Stack {
     /// Returns a reference to the underlying data buffer.
     #[inline]
     pub fn data(&self) -> &Vec<StackValueData> {
+        // export the data buffer for debugging purposes
         &self.data
     }
 
@@ -527,7 +544,7 @@ mod tests {
         });
 
         let n = 0x1111_2222_3333_4444_5555_6666_7777_8888_u128;
-        run(|stack| {
+        run(|stack: &mut Stack| {
             stack.push_slice(&n.to_be_bytes()).unwrap();
             assert_eq!(stack.data, [U256::from(n).into()]);
         });

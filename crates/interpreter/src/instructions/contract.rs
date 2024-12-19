@@ -397,7 +397,7 @@ pub fn call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.to_u256()).unwrap_or(u64::MAX);
 
     pop!(interpreter, value);
     let has_transfer = !value.to_u256().is_zero();
@@ -448,7 +448,7 @@ pub fn call_code<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.to_u256()).unwrap_or(u64::MAX);
 
     pop!(interpreter, value);
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
@@ -499,7 +499,7 @@ pub fn delegate_call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.to_u256()).unwrap_or(u64::MAX);
 
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
         return;
@@ -539,7 +539,7 @@ pub fn static_call<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
     pop!(interpreter, local_gas_limit);
     pop_address!(interpreter, to);
     // max gas limit is not possible in real ethereum situation.
-    let local_gas_limit = u64::try_from(local_gas_limit.into()).unwrap_or(u64::MAX);
+    let local_gas_limit = u64::try_from(local_gas_limit.to_u256()).unwrap_or(u64::MAX);
 
     let Some((input, return_memory_offset)) = get_memory_input_and_out_ranges(interpreter) else {
         return;

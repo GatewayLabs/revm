@@ -136,7 +136,7 @@ macro_rules! pop_address_ret {
         }
         // SAFETY: Length is checked above.
         let $x1 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
     };
     ($interp:expr, $x1:ident, $x2:ident, $ret:expr) => {
@@ -146,10 +146,10 @@ macro_rules! pop_address_ret {
         }
         // SAFETY: Length is checked above.
         let $x1 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
         let $x2 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
     };
 }
@@ -282,7 +282,7 @@ macro_rules! push {
 #[macro_export]
 macro_rules! as_u64_saturated {
     ($v:expr) => {
-        match $v.to_u256().as_limbs() {
+        match $v.as_limbs() {
             x => {
                 if (x[1] == 0) & (x[2] == 0) & (x[3] == 0) {
                     x[0]

@@ -26,7 +26,7 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     resize_memory!(interpreter, offset, 1);
     interpreter
         .shared_memory
-        .set_byte(offset, value.into().byte(0))
+        .set_byte(offset, value.to_u256().byte(0))
 }
 
 pub fn msize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
