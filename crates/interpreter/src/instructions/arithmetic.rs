@@ -43,14 +43,11 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top!(interpreter, op1, op2);
-    if !op2.to_u256().is_zero() {
-        let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-        let result = garbled_op1.div(garbled_op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-        *op2 = garbled_uint_to_ruint(&result).into();
-    }
+    let result = interpreter.circuit_builder.div(&garbled_op1, &garbled_op2);
+
+    *op2 = StackValueData::Private(result);
 }
 
 //TODO: Implement circuit for signed division
@@ -276,10 +273,16 @@ mod tests {
         div(&mut interpreter, &mut host);
 
         // Check the result
-        let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(5u64);
 
-        assert_eq!(result, expected_result.into());
+        let output_indices = interpreter.stack.pop().unwrap();
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&output_indices.into())
+            .unwrap();
+
+        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
     }
 
     #[test]
