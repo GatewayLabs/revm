@@ -13,10 +13,8 @@ use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
-
-    let garbled_op1 = op1.to_garbled_value(&mut interpreter.circuit_builder);
-    let garbled_op2 = op2.to_garbled_value(&mut interpreter.circuit_builder);
+    // pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
 
     // creates the sum circuit using the circuit builder
     let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
@@ -27,13 +25,11 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-    let result = garbled_op1.mul(garbled_op2);
+    let result = interpreter.circuit_builder.mul(&garbled_op1, &garbled_op2);
 
-    *op2 = garbled_uint_to_ruint(&result).into();
+    *op2 = StackValueData::Private(result);
 }
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -145,7 +141,7 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{instructions::utility::garbled_int_to_ruint, Contract, DummyHost};
+    use crate::{Contract, DummyHost};
     use compute::uint::GarbledUint256;
     use primitives::ruint::Uint;
 
@@ -212,10 +208,16 @@ mod tests {
 
         sub(&mut interpreter, &mut host);
 
-        let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(70u64);
 
-        assert_eq!(result, expected_result.into());
+        let output_indices = interpreter.stack.pop().unwrap();
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&output_indices.into())
+            .unwrap();
+
+        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
     }
 
     #[test]
@@ -241,10 +243,16 @@ mod tests {
         mul(&mut interpreter, &mut host);
 
         // Check the result
-        let result = interpreter.stack.pop().unwrap();
         let expected_result = Uint::<256, 4>::from(2000u64);
 
-        assert_eq!(result, expected_result.into());
+        let output_indices = interpreter.stack.pop().unwrap();
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&output_indices.into())
+            .unwrap();
+
+        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
     }
 
     #[test]
