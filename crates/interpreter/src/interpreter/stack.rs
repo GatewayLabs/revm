@@ -420,34 +420,26 @@ impl Stack {
             return Err(InstructionResult::StackOverflow);
         }
 
-        // SAFETY: Length checked above.
-        unsafe {
-            let dst = self.data.as_mut_ptr().add(self.data.len()).cast::<u64>();
-            self.data.set_len(new_len);
+        let mut temp_data = Vec::with_capacity(n_words * 4); // 4 u64 per U256
 
-            let mut i = 0;
+        let mut i = 0;
 
-            // Write full words
-            let words = slice.chunks_exact(32);
-            let partial_last_word = words.remainder();
-            for word in words {
-                // Note: We unroll `U256::from_be_bytes` here to write directly into the buffer,
-                // instead of creating a 32 byte array on the stack and then copying it over.
-                for l in word.rchunks_exact(8) {
-                    dst.add(i).write(u64::from_be_bytes(l.try_into().unwrap()));
-                    i += 1;
-                }
+        // Write full words
+        let words = slice.chunks_exact(32);
+        let partial_last_word = words.remainder();
+        for word in words {
+            for l in word.rchunks_exact(8) {
+                temp_data.push(u64::from_be_bytes(l.try_into().unwrap()));
+                i += 1;
             }
+        }
 
-            if partial_last_word.is_empty() {
-                return Ok(());
-            }
-
+        if !partial_last_word.is_empty() {
             // Write limbs of partial last word
             let limbs = partial_last_word.rchunks_exact(8);
             let partial_last_limb = limbs.remainder();
             for l in limbs {
-                dst.add(i).write(u64::from_be_bytes(l.try_into().unwrap()));
+                temp_data.push(u64::from_be_bytes(l.try_into().unwrap()));
                 i += 1;
             }
 
@@ -455,29 +447,29 @@ impl Stack {
             if !partial_last_limb.is_empty() {
                 let mut tmp = [0u8; 8];
                 tmp[8 - partial_last_limb.len()..].copy_from_slice(partial_last_limb);
-                dst.add(i).write(u64::from_be_bytes(tmp));
+                temp_data.push(u64::from_be_bytes(tmp));
                 i += 1;
             }
+        }
 
-            debug_assert_eq!((i + 3) / 4, n_words, "wrote too much");
+        debug_assert_eq!((i + 3) / 4, n_words, "wrote too much");
 
-            // Zero out upper bytes of last word
-            let m = i % 4; // 32 / 8
-            if m != 0 {
-                dst.add(i).write_bytes(0, 4 - m);
-            }
-
-            // Convert the slice to U256 values and replace the corresponding elements with StackValueData::Public
-            let mut offset = 0;
-            while offset < slice.len() {
-                let copy_len = std::cmp::min(32, slice.len() - offset);
-                let mut tmp = [0u8; 32];
-                tmp[32 - copy_len..].copy_from_slice(&slice[offset..offset + copy_len]);
-                let value = U256::from_be_slice(&tmp);
-                *self.data.get_mut(offset / 32).unwrap() = StackValueData::Public(value);
-                offset += 32;
+        // Zero out upper bytes of last word
+        let m = i % 4; // 32 / 8
+        if m != 0 {
+            for _ in 0..(4 - m) {
+                temp_data.push(0);
             }
         }
+
+        let u256_data: Vec<StackValueData> = temp_data
+            .chunks_exact(4)
+            .map(|chunk| {
+                StackValueData::Public(U256::from_limbs([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            })
+            .collect();
+
+        self.data.extend_from_slice(&u256_data);
 
         Ok(())
     }
