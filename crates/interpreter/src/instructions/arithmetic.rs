@@ -197,12 +197,12 @@ mod tests {
 
         interpreter
             .stack
-            .push(op1.clone())
-            .expect("Failed to push op1 to stack");
-        interpreter
-            .stack
             .push(op2.clone())
             .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(op1.clone())
+            .expect("Failed to push op1 to stack");
 
         sub(&mut interpreter, &mut host);
 
