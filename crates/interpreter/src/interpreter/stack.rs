@@ -420,6 +420,8 @@ impl Stack {
             return Err(InstructionResult::StackOverflow);
         }
 
+        // TODO: Optimize this by directly writing to the stack buffer
+        // Currently we're writing to a temporary buffer and then copying to the stack buffer
         let mut temp_data = Vec::with_capacity(n_words * 4); // 4 u64 per U256
 
         let mut i = 0;
