@@ -14,7 +14,7 @@ use specification::hardfork::Spec;
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     // pop_top!(interpreter, op1, op2);
-    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     // creates the sum circuit using the circuit builder
     let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
@@ -25,7 +25,7 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let result = interpreter.circuit_builder.mul(&garbled_op1, &garbled_op2);
 
@@ -34,13 +34,11 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-    let result = garbled_op2.sub(garbled_op1);
+    let result = interpreter.circuit_builder.sub(&garbled_op1, &garbled_op2);
 
-    *op2 = garbled_uint_to_ruint(&result).into();
+    *op2 = StackValueData::Private(result);
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
