@@ -15,17 +15,13 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1, op2);
 
-    // verificar se op1 é StackDataValue::Public ou StackDataValue::Private
-    // caso seja public, converter para input com o interpreter.circuit_builder.input
-
     let garbled_op1 = op1.to_garbled_value(&mut interpreter.circuit_builder);
     let garbled_op2 = op2.to_garbled_value(&mut interpreter.circuit_builder);
 
-    // cria o circuito de soma usando o circuit builder
-
+    // creates the sum circuit using the circuit builder
     let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
 
-    // Salvar sempre como StackDataValue::Private
+    // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(result);
 }
 
@@ -149,7 +145,8 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Contract, DummyHost};
+    use crate::{instructions::utility::garbled_int_to_ruint, Contract, DummyHost};
+    use compute::uint::GarbledUint256;
     use primitives::ruint::Uint;
 
     fn generate_interpreter() -> Interpreter {
@@ -185,10 +182,15 @@ mod tests {
 
         add(&mut interpreter, &mut host);
 
-        let result = interpreter.stack.pop().unwrap();
+        let output_indices = interpreter.stack.pop().unwrap();
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&output_indices.into())
+            .unwrap();
         let expected_result = Uint::<256, 4>::from(18u64);
 
-        assert_eq!(result, expected_result.into());
+        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
     }
 
     #[test]
