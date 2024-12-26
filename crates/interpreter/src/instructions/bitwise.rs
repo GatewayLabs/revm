@@ -15,21 +15,18 @@ pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    // creates the sum circuit using the circuit builder
     let result = interpreter.circuit_builder.lt(&garbled_op1, &garbled_op2);
 
-    // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
+    let result = interpreter.circuit_builder.gt(&garbled_op1, &garbled_op2);
 
-    *op2 = U256::from(garbled_op1.gt(&garbled_op2)).into();
+    *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 // TODO: Implement in garbled circuits
@@ -236,6 +233,62 @@ mod tests {
                 .expect("Failed to push op1 to stack");
 
             lt(&mut interpreter, &mut host);
+
+            let output_indices = interpreter.stack.pop().unwrap();
+
+            let result: GarbledUint256 = interpreter
+                .circuit_builder
+                .compile_and_execute(&output_indices.into())
+                .unwrap();
+
+            assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+        }
+    }
+
+    #[test]
+    fn test_gt() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+        struct TestCase {
+            op1: U256,
+            op2: U256,
+            expected: bool,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(2u64),
+                expected: false,
+            },
+            TestCase {
+                op1: U256::from(2u64),
+                op2: U256::from(1u64),
+                expected: true,
+            },
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(1u64),
+                expected: false,
+            },
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(0u64),
+                expected: true,
+            },
+        ];
+
+        for test in test_cases.iter() {
+            interpreter
+                .stack
+                .push(test.op2)
+                .expect("Failed to push op2 to stack");
+            interpreter
+                .stack
+                .push(test.op1)
+                .expect("Failed to push op1 to stack");
+
+            gt(&mut interpreter, &mut host);
 
             let output_indices = interpreter.stack.pop().unwrap();
 
