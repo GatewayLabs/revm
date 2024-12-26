@@ -59,16 +59,13 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     *op1 = U256::from(op1.to_u256().is_zero()).into();
 }
 
-//TODO: Implement circuit
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-    let result = garbled_op1 & garbled_op2;
+    let result = interpreter.circuit_builder.and(&garbled_op1, &garbled_op2);
 
-    *op2 = garbled_uint_to_ruint(&result).into();
+    *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 //TODO: Implement circuit
@@ -97,11 +94,11 @@ pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, _garbled_op1, garbled_op2);
+    pop_top_gates!(interpreter, op1, garbled_op1);
 
-    let result = interpreter.circuit_builder.not(&garbled_op2);
+    let result = interpreter.circuit_builder.not(&garbled_op1);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op1 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 // TODO: Implement in garbled circuits
@@ -399,6 +396,57 @@ mod tests {
                 .unwrap();
 
             assert_eq!(garbled_uint_to_ruint(&result), test.expected, "Failed for op1: {:?}", test.op1);
+        }
+    }
+
+    #[test]
+    fn test_bitand () {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+        struct TestCase {
+            op1: U256,
+            op2: U256,
+            expected: U256,
+        }
+
+        let test_cases = vec![
+            TestCase {
+            op1: U256::from(0x1234567890abcdefu128),
+            op2: U256::from(0xfedcba0987654321u128),
+            expected: U256::from(0x0214440010044001u128),
+            },
+            TestCase {
+            op1: U256::from(0xffffffffffffffffu128),
+            op2: U256::from(0x0000000000000000u128),
+            expected: U256::from(0x0000000000000000u128),
+            },
+            TestCase {
+            op1: U256::from(0x0f0f0f0f0f0f0f0fu128),
+            op2: U256::from(0xf0f0f0f0f0f0f0f0u128),
+            expected: U256::from(0x0000000000000000u128),
+            },
+        ];
+
+        for test in test_cases.iter() {
+            interpreter
+                .stack
+                .push(test.op2)
+                .expect("Failed to push op2 to stack");
+            interpreter
+                .stack
+                .push(test.op1)
+                .expect("Failed to push op1 to stack");
+
+            bitand(&mut interpreter, &mut host);
+
+            let output_indices = interpreter.stack.pop().unwrap();
+
+            let result: GarbledUint256 = interpreter
+                .circuit_builder
+                .compile_and_execute(&output_indices.into())
+                .unwrap();
+
+            assert_eq!(garbled_uint_to_ruint(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
         }
     }
 
