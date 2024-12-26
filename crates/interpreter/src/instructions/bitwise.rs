@@ -1,21 +1,25 @@
-use super::i256::i256_cmp;
+use core::ops::{Div, Mul, Rem, Sub};
+use super::i256::{i256_cmp};
 use crate::{
     gas,
     instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
+    interpreter::StackValueData,
     Host, Interpreter,
 };
-use core::cmp::Ordering;
+use compute::prelude::{CircuitExecutor, GateIndexVec};
 use primitives::U256;
+use core::cmp::Ordering;
 use specification::hardfork::Spec;
 
 pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
+    // creates the sum circuit using the circuit builder
+    let result = interpreter.circuit_builder.lt(&garbled_op1, &garbled_op2);
 
-    *op2 = U256::from(garbled_op1.lt(&garbled_op2)).into();
+    // Always save as StackDataValue::Private
+    *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -166,11 +170,83 @@ pub fn sar<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::instructions::bitwise::{byte, sar, shl, shr};
+    use crate::instructions::utility::garbled_uint_to_bool;
     use crate::{Contract, DummyHost, Interpreter};
+    use compute::uint::GarbledUint256;
     use primitives::{uint, U256};
     use specification::hardfork::LatestSpec;
     use wiring::{default::Env, DefaultEthereumWiring};
+
+    fn generate_interpreter() -> Interpreter {
+        let contract = Contract::default();
+        let gas_limit = 10_000_000;
+        let is_static = false;
+        Interpreter::new(contract, gas_limit, is_static)
+    }
+
+    fn generate_host() -> DummyHost<
+        wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
+    > {
+        DummyHost::default()
+    }
+
+    #[test]
+    fn test_lt() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+        struct TestCase {
+            op1: U256,
+            op2: U256,
+            expected: bool,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(2u64),
+                expected: true,
+            },
+            TestCase {
+                op1: U256::from(2u64),
+                op2: U256::from(1u64),
+                expected: false,
+            },
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(1u64),
+                expected: false,
+            },
+            TestCase {
+                op1: U256::from(1u64),
+                op2: U256::from(0u64),
+                expected: false,
+            },
+        ];
+
+        for test in test_cases.iter() {
+            interpreter
+                .stack
+                .push(test.op2)
+                .expect("Failed to push op2 to stack");
+            interpreter
+                .stack
+                .push(test.op1)
+                .expect("Failed to push op1 to stack");
+
+            lt(&mut interpreter, &mut host);
+
+            let output_indices = interpreter.stack.pop().unwrap();
+
+            let result: GarbledUint256 = interpreter
+                .circuit_builder
+                .compile_and_execute(&output_indices.into())
+                .unwrap();
+
+            assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+        }
+    }
 
     #[test]
     fn test_shift_left() {
