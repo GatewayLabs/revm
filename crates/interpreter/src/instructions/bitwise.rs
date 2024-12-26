@@ -77,16 +77,13 @@ pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
-//TODO: Implement circuit
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let garbled_op1 = ruint_to_garbled_uint(&op1.into());
-    let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-    let result = garbled_op1 ^ garbled_op2;
+    let result = interpreter.circuit_builder.xor(&garbled_op1, &garbled_op2);
 
-    *op2 = garbled_uint_to_ruint(&result).into();
+    *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -483,7 +480,7 @@ mod tests {
                 op2: U256::from(0xfe00),
                 expected: U256::from(0xfe00),
             },
-            TestCase {
+            TestCase { // TODO: For this case it is not passing
                 op1: U256::from(0x3400),
                 op2: U256::from(0xdc00),
                 expected: U256::from(0xdc00),
@@ -521,6 +518,84 @@ mod tests {
                 "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
                 test.op1, test.op2, actual, test.expected);
                 }
+    }
+
+    #[test]
+    fn test_bitxor () {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+        struct TestCase {
+            op1: U256,
+            op2: U256,
+            expected: U256,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                op1: U256::from(0xf000000000000000u64),
+                op2: U256::from(0x1000000000000000u64),
+                expected: U256::from(0xe000000000000000u64),
+            },
+            TestCase {
+                op1: U256::from(0xffffffffffffffffu128),
+                op2: U256::from(0x0000000000000000u128),
+                expected: U256::from(0xffffffffffffffffu128),
+            },
+            TestCase {
+                op1: U256::from(0x0f0f0f0f0f0f0f0fu128),
+                op2: U256::from(0xf0f0f0f0f0f0f0f0u128),
+                expected: U256::from(0xffffffffffffffffu128),
+            },
+            TestCase {
+                op1: U256::from(0xf000000000000000u64),
+                op2: U256::from(0x1000000000000000u64),
+                expected: U256::from(0xe000000000000000u64),
+            },
+            TestCase {
+                op1: U256::from(0x1200),
+                op2: U256::from(0xfe00),
+                expected: U256::from(0xec00),
+            },
+            TestCase { // TODO: For this case it is not passing
+                op1: U256::from(0x3400),
+                op2: U256::from(0xdc00),
+                expected: U256::from(0xe000),
+            }
+        ];
+
+        for test in test_cases.iter() {
+            interpreter
+                .stack
+                .push(test.op2)
+                .expect("Failed to push op2 to stack");
+            interpreter
+                .stack
+                .push(test.op1)
+                .expect("Failed to push op1 to stack");
+
+            bitxor(&mut interpreter, &mut host);
+
+            let output_indices = interpreter.stack.pop().unwrap();
+
+            let result: GarbledUint256 = interpreter
+                .circuit_builder
+                .compile_and_execute(&output_indices.into())
+                .unwrap();
+
+           
+                let actual = garbled_uint_to_ruint(&result);
+                println!("Test case:");
+                println!("op1:      0x{:x}", test.op1);
+                println!("op2:      0x{:x}", test.op2);
+                println!("result:   0x{:x}", actual);
+                println!("expected: 0x{:x}", test.expected);
+                println!("---");
+    
+                assert_eq!(garbled_uint_to_ruint(&result), test.expected, 
+                    "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
+                    test.op1, test.op2, actual, test.expected);
+
+        }
     }
 
     #[test]
