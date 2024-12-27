@@ -476,14 +476,9 @@ mod tests {
                 expected: U256::from(0xf000000000000000u64),
             },
             TestCase {
-                op1: U256::from(0x1200),
-                op2: U256::from(0xfe00),
-                expected: U256::from(0xfe00),
-            },
-            TestCase { // TODO: For this case it is not passing
-                op1: U256::from(0x3400),
-                op2: U256::from(0xdc00),
-                expected: U256::from(0xdc00),
+                op1: U256::from(0x3400u64),
+                op2: U256::from(0xdc00u64),
+                expected: U256::from(0xfc00u64),
             }
         ];
 
@@ -552,14 +547,14 @@ mod tests {
                 expected: U256::from(0xe000000000000000u64),
             },
             TestCase {
-                op1: U256::from(0x1200),
-                op2: U256::from(0xfe00),
-                expected: U256::from(0xec00),
+                op1: U256::from(0x1200u64),
+                op2: U256::from(0xfe00u64),
+                expected: U256::from(0xec00u64),
             },
-            TestCase { // TODO: For this case it is not passing
-                op1: U256::from(0x3400),
-                op2: U256::from(0xdc00),
-                expected: U256::from(0xe000),
+            TestCase {
+                op1: U256::from(0x3400u64),
+                op2: U256::from(0xdc00u64),
+                expected: U256::from(0xe800u64),
             }
         ];
 
