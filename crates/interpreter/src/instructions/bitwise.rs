@@ -502,12 +502,6 @@ mod tests {
                 .unwrap();
                 
             let actual = garbled_uint_to_ruint(&result);
-            println!("Test case:");
-            println!("op1:      0x{:x}", test.op1);
-            println!("op2:      0x{:x}", test.op2);
-            println!("result:   0x{:x}", actual);
-            println!("expected: 0x{:x}", test.expected);
-            println!("---");
 
             assert_eq!(garbled_uint_to_ruint(&result), test.expected, 
                 "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
@@ -579,12 +573,6 @@ mod tests {
 
            
                 let actual = garbled_uint_to_ruint(&result);
-                println!("Test case:");
-                println!("op1:      0x{:x}", test.op1);
-                println!("op2:      0x{:x}", test.op2);
-                println!("result:   0x{:x}", actual);
-                println!("expected: 0x{:x}", test.expected);
-                println!("---");
     
                 assert_eq!(garbled_uint_to_ruint(&result), test.expected, 
                     "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
