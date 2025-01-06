@@ -1,9 +1,7 @@
-use core::ops::{Div, Mul, Rem, Sub};
 
 use super::i256::{i256_div, i256_mod};
 use crate::{
     gas,
-    instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
     interpreter::StackValueData,
     Host, Interpreter,
 };
@@ -133,7 +131,7 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Contract, DummyHost};
+    use crate::{instructions::utility::garbled_uint_to_ruint, Contract, DummyHost};
     use compute::uint::GarbledUint256;
     use primitives::ruint::Uint;
 

@@ -22,7 +22,7 @@ rust_2018_idioms = "deny"
 all = "warn"
 
 [dependencies]
-revm = { workspace = true, features = ["std"] }
+revm = { workspace = true, features = ["std", "serde"] }
 database.workspace = true
 
 # mics

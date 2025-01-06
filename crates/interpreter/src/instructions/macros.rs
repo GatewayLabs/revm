@@ -259,7 +259,7 @@ macro_rules! pop_top_gates {
             return;
         }
         // SAFETY: Length is checked above.
-        let mut $x1 = unsafe { $interp.stack.top_unsafe() };
+        let $x1 = unsafe { $interp.stack.top_unsafe() };
         let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder);
     };
     ($interp:expr, $x1:ident, $x2:ident, $garbled_x1:ident, $garbled_x2:ident) => {

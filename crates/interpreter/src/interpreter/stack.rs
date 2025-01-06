@@ -1,8 +1,8 @@
 use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
+use serde::{Deserialize, Serialize};
 use core::{fmt, ptr};
 use primitives::{FixedBytes, B256, U256};
-use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 /// EVM interpreter stack limit.
