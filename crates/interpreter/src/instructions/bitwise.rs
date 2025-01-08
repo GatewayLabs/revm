@@ -51,25 +51,29 @@ pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
-// TODO: Is missing tests
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
-    
+
+    let zero_bits = vec![false; 256];
+    let zero = compute::uint::GarbledUint::<256>::new(zero_bits);
+    let zero_gates = interpreter.circuit_builder.input(&zero);
+
     let result = match op1 {
-        StackValueData::Public(value) => StackValueData::Public(U256::from(value.is_zero())),
+        StackValueData::Public(value) => {
+            let garbled_gates = StackValueData::Public(*value).to_garbled_value(&mut interpreter.circuit_builder);
+            let eq_result = interpreter.circuit_builder.eq(&garbled_gates, &zero_gates);
+            StackValueData::Private(GateIndexVec::from(eq_result))
+        }
         StackValueData::Private(garbled) => {
-            let zero_bits = vec![false; 256];
-            let zero = compute::uint::GarbledUint::<256>::new(zero_bits);
-            let zero_gates = interpreter.circuit_builder.input(&zero);
-            
-            let result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
-            StackValueData::Private(GateIndexVec::from(result))
+            let eq_result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
+            StackValueData::Private(GateIndexVec::from(eq_result))
         }
     };
-    
+
     *op1 = result;
 }
+
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
@@ -358,6 +362,65 @@ mod tests {
                 .unwrap();
 
             assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+        }
+    }
+
+    #[test]
+    fn test_iszero() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+        
+        struct TestCase {
+            value: U256,
+            expected: bool
+        }
+    
+        let test_cases = vec![
+            TestCase {
+                value: U256::ZERO,
+                expected: true
+            },
+            TestCase {
+                value: U256::from(1u64),
+                expected: false
+            },
+            TestCase {
+                value: U256::from(0xffffffffffffffffu64),
+                expected: false
+            },
+            TestCase {
+                value: U256::from(0x8000000000000000u64),
+                expected: false
+            }
+        ];
+    
+        for test in test_cases.iter() {
+            interpreter
+                .stack
+                .push(test.value)
+                .expect("Failed to push value to stack");
+
+            println!("Value: {:?}", test.value);
+    
+            iszero(&mut interpreter, &mut host);
+    
+            let output_indices = interpreter.stack.pop().unwrap();
+
+            println!("Output indices: {:?}", output_indices);
+            
+            let result: GarbledUint256 = interpreter
+                .circuit_builder
+                .compile_and_execute(&output_indices.into())
+                .unwrap();
+
+            println!("Result: {:?}", garbled_uint_to_bool(&result));
+    
+            assert_eq!(
+                garbled_uint_to_bool(&result), 
+                test.expected,
+                "Failed for value: {:?}", 
+                test.value
+            );
         }
     }
 
