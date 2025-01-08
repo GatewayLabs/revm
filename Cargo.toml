@@ -31,6 +31,7 @@ members = [
     "examples/database_ref",
     "examples/uniswap_get_reserves",
     "examples/uniswap_v2_usdc_swap",
+    "examples/add_example",
     #"examples/custom_opcodes",
 ]
 
