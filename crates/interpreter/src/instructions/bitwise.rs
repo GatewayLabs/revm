@@ -51,13 +51,25 @@ pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
 
-//TODO: Remove this function and use eq zero instead
+// TODO: Is missing tests
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
-    *op1 = U256::from(op1.to_u256().is_zero()).into();
+    
+    let result = match op1 {
+        StackValueData::Public(value) => StackValueData::Public(U256::from(value.is_zero())),
+        StackValueData::Private(garbled) => {
+            let zero_bits = vec![false; 256];
+            let zero = compute::uint::GarbledUint::<256>::new(zero_bits);
+            let zero_gates = interpreter.circuit_builder.input(&zero);
+            
+            let result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
+            StackValueData::Private(GateIndexVec::from(result))
+        }
+    };
+    
+    *op1 = result;
 }
-
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
