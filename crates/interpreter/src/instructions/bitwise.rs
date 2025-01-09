@@ -481,7 +481,7 @@ mod tests {
             TestCase {
             op1: U256::from(0x1234567890abcdefu128),
             op2: U256::from(0xfedcba0987654321u128),
-            expected: U256::from(0x0214440010044001u128),
+            expected: U256::from(1302686019935617313u64),
             },
             TestCase {
             op1: U256::from(0xffffffffffffffffu128),
