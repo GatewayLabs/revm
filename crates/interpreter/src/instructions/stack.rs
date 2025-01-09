@@ -105,9 +105,9 @@ mod test {
         interp.stack.push(U256::from(10)).unwrap();
         interp.stack.push(U256::from(20)).unwrap();
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.pop(), Ok(U256::from(20)));
+        assert_eq!(interp.stack.pop(), Ok(U256::from(20).into()));
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.pop(), Ok(U256::from(10)));
+        assert_eq!(interp.stack.pop(), Ok(U256::from(10).into()));
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::StackUnderflow);
     }
@@ -125,11 +125,11 @@ mod test {
         interp.stack.push(U256::from(20)).unwrap();
         interp.stack.push(U256::from(0)).unwrap();
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.peek(0), Ok(U256::from(20)));
-        assert_eq!(interp.stack.peek(1), Ok(U256::from(0)));
+        assert_eq!(interp.stack.peek(0), Ok(U256::from(20).into()));
+        assert_eq!(interp.stack.peek(1), Ok(U256::from(0).into()));
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.peek(0), Ok(U256::from(10)));
-        assert_eq!(interp.stack.peek(2), Ok(U256::from(20)));
+        assert_eq!(interp.stack.peek(0), Ok(U256::from(10).into()));
+        assert_eq!(interp.stack.peek(2), Ok(U256::from(20).into()));
     }
 
     #[test]
@@ -148,10 +148,10 @@ mod test {
         interp.stack.push(U256::from(0)).unwrap();
 
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.peek(1), Ok(U256::from(10)));
-        assert_eq!(interp.stack.peek(2), Ok(U256::from(15)));
+        assert_eq!(interp.stack.peek(1), Ok(U256::from(10).into()));
+        assert_eq!(interp.stack.peek(2), Ok(U256::from(15).into()));
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.peek(2), Ok(U256::from(1)));
-        assert_eq!(interp.stack.peek(4), Ok(U256::from(15)));
+        assert_eq!(interp.stack.peek(2), Ok(U256::from(1).into()));
+        assert_eq!(interp.stack.peek(4), Ok(U256::from(15).into()));
     }
 }

@@ -4,9 +4,10 @@ pub mod serde;
 mod shared_memory;
 mod stack;
 
+use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
-pub use stack::{Stack, STACK_LIMIT};
+pub use stack::{Stack, StackValueData, STACK_LIMIT};
 
 use crate::{
     gas, push, push_b256, return_ok, return_revert, CallOutcome, CreateOutcome, FunctionStack, Gas,
@@ -60,6 +61,7 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
+    pub circuit_builder: WRK17CircuitBuilder,
 }
 
 impl Default for Interpreter {
@@ -90,6 +92,7 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 
@@ -150,9 +153,9 @@ impl Interpreter {
     /// Depending on the `InstructionResult` indicated by `create_outcome`, it performs one of the following:
     ///
     /// - `Ok`: Pushes the address from `create_outcome` to the stack, updates gas costs, and records any gas refunds.
-    /// - `Revert`: Pushes `U256::ZERO` to the stack and updates gas costs.
+    /// - `Revert`: Pushes `StackValueData::Public(U256::ZERO` to the stack and updates gas costs)
     /// - `FatalExternalError`: Sets the `instruction_result` to `InstructionResult::FatalExternalError`.
-    /// - `Default`: Pushes `U256::ZERO` to the stack.
+    /// - `Default`: Pushes `StackValueData::Public(U256::ZERO` to the stack)
     ///
     /// # Side Effects
     ///
@@ -180,14 +183,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, U256::ZERO);
+                push!(self, StackValueData::Public(U256::ZERO).into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_create_outcome");
             }
             _ => {
-                push!(self, U256::ZERO);
+                push!(self, StackValueData::Public(U256::ZERO).into())
             }
         }
     }
@@ -221,7 +224,7 @@ impl Interpreter {
                 panic!("Fatal external error in insert_eofcreate_outcome");
             }
             _ => {
-                push!(self, U256::ZERO);
+                push!(self, U256::ZERO)
             }
         }
     }

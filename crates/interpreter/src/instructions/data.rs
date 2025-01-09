@@ -23,7 +23,7 @@ pub fn data_load<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
     let mut word = [0u8; 32];
     word[..slice.len()].copy_from_slice(slice);
 
-    *offset = U256::from_be_bytes(word);
+    *offset = U256::from_be_bytes(word).into();
 }
 
 pub fn data_loadn<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -121,12 +121,12 @@ mod test {
         // DATALOAD
         interp.stack.push(U256::from(0)).unwrap();
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.data(), &vec![U256::from(0x01)]);
+        assert_eq!(interp.stack.data(), &vec![U256::from(0x01).into()]);
         interp.stack.pop().unwrap();
 
         // DATALOADN
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.data(), &vec![U256::from(0x01)]);
+        assert_eq!(interp.stack.data(), &vec![U256::from(0x01).into()]);
         interp.stack.pop().unwrap();
 
         // DATALOAD (padding)
@@ -149,17 +149,17 @@ mod test {
         // DATALOAD (out of bounds)
         interp.stack.push(U256::from(36)).unwrap();
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.data(), &vec![U256::ZERO]);
+        assert_eq!(interp.stack.data(), &vec![U256::ZERO.into()]);
         interp.stack.pop().unwrap();
 
         // DATALOADN (out of bounds)
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.data(), &vec![U256::ZERO]);
+        assert_eq!(interp.stack.data(), &vec![U256::ZERO.into()]);
         interp.stack.pop().unwrap();
 
         // DATA SIZE
         interp.step(&table, &mut host);
-        assert_eq!(interp.stack.data(), &vec![U256::from(36)]);
+        assert_eq!(interp.stack.data(), &vec![U256::from(36).into()]);
     }
 
     #[test]

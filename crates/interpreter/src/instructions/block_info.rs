@@ -7,7 +7,7 @@ use wiring::Block;
 pub fn chainid<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
     check!(interpreter, ISTANBUL);
     gas!(interpreter, gas::BASE);
-    push!(interpreter, U256::from(host.env().cfg.chain_id));
+    push!(interpreter, U256::from(host.env().cfg.chain_id).into());
 }
 
 pub fn coinbase<H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {

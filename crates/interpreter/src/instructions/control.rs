@@ -19,7 +19,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     // In spec it is +3 but pointer is already incremented in
     // `Interpreter::step` so for revm is +2.
     let mut offset = 2;
-    if !condition.is_zero() {
+    if !condition.to_u256().is_zero() {
         offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
     }
 
@@ -54,14 +54,15 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop!(interpreter, target);
-    jump_inner(interpreter, target);
+    jump_inner(interpreter, target.into());
 }
 
 pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
     pop!(interpreter, target, cond);
-    if !cond.is_zero() {
-        jump_inner(interpreter, target);
+
+    if !cond.to_u256().is_zero() {
+        jump_inner(interpreter, target.into());
     }
 }
 

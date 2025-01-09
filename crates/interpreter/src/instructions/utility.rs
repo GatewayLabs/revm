@@ -44,6 +44,10 @@ pub fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
     Uint::from_le_bytes(array)
 }
 
+pub fn garbled_uint_to_bool(value: &GarbledUint<256>) -> bool {
+    value.bits[0]
+}
+
 pub fn ruint_to_garbled_int(value: &Uint<256, 4>) -> GarbledInt<256> {
     let bytes: [u8; 32] = value.to_le_bytes();
 

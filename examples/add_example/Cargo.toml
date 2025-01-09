@@ -1,5 +1,5 @@
 [package]
-name = "example-abi-contract-deployment"
+name = "add-example"
 version = "0.0.0"
 publish = false
 authors.workspace = true
@@ -24,6 +24,9 @@ all = "warn"
 [dependencies]
 revm = { workspace = true, features = ["std", "serde"] }
 database.workspace = true
+interpreter = { workspace = true }
+compute = { workspace = true }
+primitives = { workspace = true }
 
 # mics
 anyhow = "1.0.89"

@@ -27,7 +27,7 @@ pub fn balance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host
             20
         }
     );
-    push!(interpreter, balance.data);
+    push!(interpreter, balance.data.into());
 }
 
 /// EIP-1884: Repricing for trie-size-dependent opcodes
@@ -115,24 +115,28 @@ pub fn blockhash<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, ho
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
-    *number = U256::from_be_bytes(hash.0);
+    *number = U256::from_be_bytes(hash.0).into();
 }
 
 pub fn sload<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
     pop_top!(interpreter, index);
-    let Some(value) = host.sload(interpreter.contract.target_address, *index) else {
+    let Some(value) = host.sload(interpreter.contract.target_address, index.to_u256()) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
     gas!(interpreter, gas::sload_cost(SPEC::SPEC_ID, value.is_cold));
-    *index = value.data;
+    *index = value.data.into();
 }
 
 pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
     require_non_staticcall!(interpreter);
 
     pop!(interpreter, index, value);
-    let Some(state_load) = host.sstore(interpreter.contract.target_address, index, value) else {
+    let Some(state_load) = host.sstore(
+        interpreter.contract.target_address,
+        index.into(),
+        value.into(),
+    ) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
@@ -161,7 +165,11 @@ pub fn tstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
 
     pop!(interpreter, index, value);
 
-    host.tstore(interpreter.contract.target_address, index, value);
+    host.tstore(
+        interpreter.contract.target_address,
+        index.into(),
+        value.into(),
+    );
 }
 
 /// EIP-1153: Transient storage opcodes
@@ -172,7 +180,9 @@ pub fn tload<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: 
 
     pop_top!(interpreter, index);
 
-    *index = host.tload(interpreter.contract.target_address, *index);
+    *index = host
+        .tload(interpreter.contract.target_address, index.clone().into())
+        .into();
 }
 
 pub fn log<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
@@ -197,7 +207,9 @@ pub fn log<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, host
     let mut topics = Vec::with_capacity(N);
     for _ in 0..N {
         // SAFETY: stack bounds already checked few lines above
-        topics.push(B256::from(unsafe { interpreter.stack.pop_unsafe() }));
+        topics.push(B256::from(unsafe {
+            interpreter.stack.pop_unsafe().to_u256()
+        }));
     }
 
     let log = Log {
