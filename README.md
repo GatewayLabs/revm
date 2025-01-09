@@ -48,7 +48,7 @@ cargo build --release
 ### Running an example
 
 ```shell
-cd examples/add_example
+cargo run -p add-example (for instance)
 ```
 
 ```shell
