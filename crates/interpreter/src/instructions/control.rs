@@ -61,13 +61,9 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
     pop!(interpreter, target, cond);
 
-    let cond_garbled = cond.to_garbled_value(&mut interpreter.circuit_builder);
-    let output = interpreter.circuit_builder.compile_and_execute::<256>(&cond_garbled)
-        .expect("Failed to execute circuit");
-
-        if !output.bits[0] {
-            jump_inner(interpreter, target.into());
-        }
+    if !cond.to_u256().is_zero() {
+        jump_inner(interpreter, target.into());
+    }
 }
 
 #[inline]
