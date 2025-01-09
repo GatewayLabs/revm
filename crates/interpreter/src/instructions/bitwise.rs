@@ -436,15 +436,15 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 op1: U256::from(1u64),
-                expected: U256::from(0u64),
+                expected: !U256::from(1u64),
             },
             TestCase {
                 op1: U256::from(0u64),
-                expected: U256::from(1u64),
+                expected: !U256::from(0u64),
             },
             TestCase {
                 op1: U256::from(0x1234567890abcdefu128),
-                expected: U256::from(0xedcba9876f543210u128),
+                expected: !U256::from(0x1234567890abcdefu128),
             },
         ];
 
