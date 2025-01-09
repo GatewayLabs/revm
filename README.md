@@ -32,8 +32,8 @@ This project tends to use the newest rust version, so if you're encountering a b
 
 ### Dependencies
 
--[Gateway Circuit SDK](https://github.com/GatewayLabs/circuit-sdk)
-In in the same work directory as you cloned this repository, you have to clone the `Gateway Circuit SDK`.
+- [Gateway Circuit SDK](https://github.com/GatewayLabs/circuit-sdk)  
+  In in the same work directory as you cloned this repository, you have to clone the `Gateway Circuit SDK`.
 
 ```shell
 git clone git@github.com:GatewayLabs/circuit-sdk.git
