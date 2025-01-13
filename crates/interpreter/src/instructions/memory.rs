@@ -163,4 +163,103 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     assert_eq!(src_value, dst_value, "MCOPY read back verification failed");
 
     interpreter.stack.push_stack_value_data(StackValueData::Private(src_value)).unwrap();
+    
+    // interpreter.private_memory.copy(dst, src, len);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::macos::raw;
+
+    use super::*;
+    use crate::{instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint}, Contract, DummyHost, Interpreter};
+    use compute::{prelude::GateIndexVec, uint::GarbledUint256};
+    use primitives::{ruint::Uint, U256};
+    use wiring::DefaultEthereumWiring;
+
+    fn generate_interpreter() -> Interpreter {
+        let contract = Contract::default();
+        let gas_limit = 10_000_000;
+        let is_static = false;
+        Interpreter::new(contract, gas_limit, is_static)
+    }
+
+    fn generate_host() -> DummyHost<
+        wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
+    > {
+        DummyHost::default()
+    }
+
+    #[test]
+    fn test_mload_private() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        let raw_value = U256::from(42);
+
+        // Define um valor privado para armazenar na memória
+        // let private_value = ruint_to_garbled_uint(&raw_value);
+        // let private_value = GateIndexVec::from(42);
+
+        // Define o offset na memória onde o valor será armazenado
+        let offset = U256::from(0);
+
+        // Converte o valor privado para um valor de pilha
+        // let stack_value = StackValueData::Private(GateIndexVec::from(private_value));
+
+        // Empilha o valor e o offset no interpretador
+        interpreter.stack.push(raw_value).expect("Failed to push value to stack");
+        // interpreter.stack.push(stack_value).expect("Failed to push value to stack");
+        interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
+
+        // Chama a função mstore para armazenar o valor na memória
+        mstore(&mut interpreter, &mut host);
+
+        // Empilha o offset novamente para carregar o valor da memória
+        interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
+
+        // Chama a função mload para carregar o valor da memória
+        mload(&mut interpreter, &mut host);
+
+        // Desempilha o valor carregado da memória
+        let loaded_value = interpreter.stack.pop().expect("Failed to pop value from stack");
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&loaded_value.into())
+            .unwrap();
+        let expected_result = Uint::<256, 4>::from(raw_value);
+        
+
+        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+
+        // Verifica se o valor carregado é igual ao valor original
+        // assert_eq!(loaded_value, StackValueData::Private(GateIndexVec::from(42)));
+    }
+
+    // #[test]
+    // fn test_mstore_private() {
+    //     let mut interpreter = generate_interpreter();
+    //     let mut host = generate_host();
+
+    //     // Define um valor privado para armazenar na memória
+    //     let private_value = GarbledUint256::from(42u64);
+
+    //     // Define o offset na memória onde o valor será armazenado
+    //     let offset = U256::from(0);
+
+    //     // Converte o valor privado para um valor de pilha
+    //     let stack_value = StackValueData::Private(private_value.clone());
+
+    //     // Empilha o valor e o offset no interpretador
+    //     interpreter.stack.push(stack_value).expect("Failed to push value to stack");
+    //     interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
+
+    //     // Chama a função mstore para armazenar o valor na memória
+    //     mstore(&mut interpreter, &mut host);
+
+    //     // Verifica se o valor foi armazenado corretamente na memória privada
+    //     let stored_value = interpreter.private_memory.get(0).clone();
+    //     assert_eq!(stored_value, private_value);
+    // }
 }
