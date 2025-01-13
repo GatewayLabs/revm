@@ -11,7 +11,8 @@ pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
         KECCAK_EMPTY
     } else {
         let from = as_usize_or_fail!(interpreter, offset);
-        resize_memory!(interpreter, from, len);
+        // TODO: Implement resize memory here
+        // resize_memory!(interpreter, from, len);
         primitives::keccak256(interpreter.shared_memory.slice(from, len))
     };
     *len_ptr = hash.into();

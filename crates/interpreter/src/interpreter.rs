@@ -2,9 +2,11 @@ mod contract;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared_memory;
+mod private_memory;
 mod stack;
 
 use compute::prelude::WRK17CircuitBuilder;
+use compute::prelude::GateIndexVec;
 pub use contract::Contract;
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
@@ -18,6 +20,7 @@ use core::cmp::min;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::sync::Arc;
+pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -44,6 +47,7 @@ pub struct Interpreter {
     /// Note: This field is only set while running the interpreter loop.
     /// Otherwise it is taken and replaced with empty shared memory.
     pub shared_memory: SharedMemory,
+    pub private_memory: PrivateMemory,
     /// Stack.
     pub stack: Stack,
     /// EOF function stack.
@@ -71,7 +75,7 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
-    /// Create new interpreter
+/// Create new interpreter
     pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
         if !contract.bytecode.is_execution_ready() {
             panic!("Contract is not execution ready {:?}", contract.bytecode);
@@ -93,6 +97,7 @@ impl Interpreter {
             stack: Stack::new(),
             next_action: InterpreterAction::None,
             circuit_builder: WRK17CircuitBuilder::default(),
+            private_memory: EMPTY_PRIVATE_MEMORY,
         }
     }
 
@@ -407,7 +412,7 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(&mut self.shared_memory, &mut self.gas, new_size)
+        resize_memory(self, new_size)
     }
 }
 
@@ -456,14 +461,17 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) -> bool {
+pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
-    let current_cost = memory.current_expansion_cost();
+    let current_cost = interpreter.shared_memory.current_expansion_cost();
     let cost = new_cost - current_cost;
-    let success = gas.record_cost(cost);
+    let success = interpreter.gas.record_cost(cost);
     if success {
-        memory.resize((new_words as usize) * 32);
+        let new_size = (new_words as usize) * 32;
+        // Resize both memories
+        interpreter.shared_memory.resize(new_size);
+        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
     }
     success
 }
