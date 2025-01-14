@@ -172,7 +172,7 @@ mod tests {
     use std::os::macos::raw;
 
     use super::*;
-    use crate::{instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint}, Contract, DummyHost, Interpreter};
+    use crate::{instructions::utility::{garbled_uint64_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint}, Contract, DummyHost, Interpreter};
     use compute::{prelude::GateIndexVec, uint::GarbledUint256};
     use primitives::{ruint::Uint, U256};
     use wiring::DefaultEthereumWiring;
@@ -224,7 +224,7 @@ mod tests {
         println!("result: {:?}", result);
         println!("expected_result: {:?}", expected_result);
 
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
 
     }
 
@@ -255,7 +255,7 @@ mod tests {
             .compile_and_execute(&stored_value)
             .unwrap();
 
-        // assert_eq!(stored_value_converted, garbled_value_manual);
+        assert_eq!(stored_value_converted, garbled_value_manual);
 
         // Stack the offset again to load the value from memory
         interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
@@ -274,7 +274,7 @@ mod tests {
         println!("result: {:?}", result);
         println!("expected_result: {:?}", expected_result);
 
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
             .circuit_builder
             .compile_and_execute(&stored_value)
             .unwrap();
-        // assert_eq!(stored_value_converted, garbled_value_manual);
+        assert_eq!(stored_value_converted, garbled_value_manual);
 
         // Stack the offset again to load the value from memory
         interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
@@ -322,7 +322,7 @@ mod tests {
         println!("result: {:?}", result);
         println!("expected_result: {:?}", expected_result);
 
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
     }
 
     #[test]
@@ -336,6 +336,9 @@ mod tests {
         // Pops the size of the private memory
         let size = interpreter.stack.pop().expect("Failed to pop value from stack");
 
+        
+
+
         let result: GarbledUint256 = interpreter
             .circuit_builder
             .compile_and_execute(&size.into())
@@ -344,6 +347,6 @@ mod tests {
         println!("result: {:?}", result);
         println!("expected_result: {:?}", expected_result);
 
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
     }
 }
