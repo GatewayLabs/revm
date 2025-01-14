@@ -138,7 +138,8 @@ impl PrivateMemory {
     /// Panics on out of bounds.
     #[inline]
     pub fn get(&self, offset: usize) -> &GateIndexVec {
-        &self.buffer[self.last_checkpoint + offset]
+        let actual_offset = self.last_checkpoint + offset;
+        &self.buffer[actual_offset]
     }
 
     /// Returns a mutable reference to a GateIndexVec at the given offset.
@@ -160,7 +161,13 @@ impl PrivateMemory {
     pub fn copy(&mut self, dst: usize, src: usize, len: usize) {
         let dst_start = self.last_checkpoint + dst;
         let src_start = self.last_checkpoint + src;
-        let src_slice = self.buffer[src_start..src_start + len].to_vec();
-        self.buffer[dst_start..dst_start + len].clone_from_slice(&src_slice);
+        
+        // Collect all source values first
+        let src_values: Vec<GateIndexVec> = self.buffer[src_start..src_start + len].to_vec();
+        
+        // Then copy each value to destination
+        for (i, value) in src_values.iter().enumerate() {
+            self.buffer[dst_start + i] = value.clone();
+        }
     }
 }
