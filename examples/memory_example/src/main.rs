@@ -14,18 +14,31 @@ use interpreter::{
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
 
-// Runtime bytecode that:
-// 1. PUSH1 0x42 (value to store)
-// 2. PUSH1 0x00 (memory position 0)
-// 3. MSTORE (store value at position 0)
-// 4. PUSH1 0x00 (memory position 0)
-// 5. MLOAD (load value from position 0)
 const RUNTIME_CODE: &[u8] = &[
+    // Test 1: mstore/mload
     0x60, 0x42,     // PUSH1 0x42 (decimal 66)
     0x60, 0x00,     // PUSH1 0x00 (position 0)
     0x52,           // MSTORE
     0x60, 0x00,     // PUSH1 0x00 (position 0)
     0x51,           // MLOAD
+
+    // Test 2: mstore8
+    0x60, 0xFF,     // PUSH1 0xFF
+    0x60, 0x20,     // PUSH1 0x20 (position 32)
+    0x53,           // MSTORE8
+    0x60, 0x20,     // PUSH1 0x20 (position 32)
+    0x51,           // MLOAD
+
+    // Test 3: mcopy
+    0x60, 0x20,     // PUSH1 0x20 (length: 32)
+    0x60, 0x40,     // PUSH1 0x40 (destination: 64)
+    0x60, 0x00,     // PUSH1 0x00 (source: 0)
+    0x5e,           // MCOPY
+    0x60, 0x40,     // PUSH1 0x40 (position 64)
+    0x51,           // MLOAD
+
+    // Test 4: msize
+    0x59,           // MSIZE
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -39,12 +52,46 @@ fn print_bytecode_details(bytecode: &Bytes) {
     }
 }
 
+fn verify_garbled_value(interpreter: &mut Interpreter, index: usize, expected: Option<u64>, name: &str) -> anyhow::Result<()> {
+    println!("\nVerifying {}:", name);
+    match interpreter.stack().peek(index) {
+        Ok(value) => {
+            match value {
+                StackValueData::Private(gate_indices) => {
+                    println!("  Gate indices: {:?}", gate_indices);
+                    println!("  Gate indices len: {}", gate_indices.len());
+                    
+                    let result: GarbledUint256 = interpreter.circuit_builder
+                        .compile_and_execute(&gate_indices)
+                        .expect(&format!("Failed to execute {} verification circuit", name));
+
+                    println!("  Compiled bits: {:?}", result.bits);
+                    println!("  Gate indices: {:?}", gate_indices);
+                    
+                    let computed_result = garbled_uint_to_ruint(&result);
+                    println!("  {} result: 0x{:x}", name, computed_result);
+
+                    if let Some(expected) = expected {
+                        assert_eq!(
+                            computed_result.as_limbs()[0], 
+                            expected, 
+                            "{} result does not match expected value", name
+                        );
+                    }
+                    Ok(())
+                },
+                _ => Err(anyhow::anyhow!("Expected private value for {}", name))
+            }
+        },
+        Err(e) => Err(anyhow::anyhow!("Failed to verify {}: {:?}", name, e)),
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let bytecode = Bytecode::new_raw(Bytes::from(RUNTIME_CODE.to_vec()));
     print_bytecode_details(&bytecode.bytes());
 
     println!("\n--- Setting up interpreter ---");
-    // Contract setup
     let contract = Contract::new(
         Bytes::new(),
         bytecode.clone(),
@@ -55,64 +102,26 @@ fn main() -> anyhow::Result<()> {
         U256::ZERO,
     );
 
-    // Create interpreter
     let mut interpreter = Interpreter::new(contract, u64::MAX, false);
-
-    // Create host and instruction table
     let mut host = DummyHost::<DefaultEthereumWiring>::default();
     let table = &make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
 
     println!("\n--- Executing bytecode ---");
-    // Execute bytecode
     let _action = interpreter.run(
         SharedMemory::new(),
         table,
         &mut host,
     );
 
-    // Verify the result
     println!("\n--- Private Memory Operation Verification ---");
-    match interpreter.stack().peek(0) {
-        Ok(value) => {
-            println!("  Top of Stack Value after MLOAD: {:?}", value);
-            
-            if let StackValueData::Private(gate_indices) = value {
-                println!("  Detected Private Value");
-                println!("  Gate Indices: {:?}", gate_indices);
-                
-                let result: GarbledUint256 = interpreter.circuit_builder
-                    .compile_and_execute(&gate_indices)
-                    .map_err(|e| {
-                        println!("  Circuit Compilation Error: {:?}", e);
-                        e
-                    })?;
-                
-                let public_result = garbled_uint_to_ruint(&result);
-                
-                println!("  Private Memory Operation Result: {:?}", public_result);
-                
-                // Verification against expected result
-                let expected_result = 0x42;
-                println!("  Expected Result: 0x{:x}", expected_result);
-                
-                assert_eq!(
-                    public_result.as_limbs()[0], 
-                    expected_result, 
-                    "Private memory operation result does not match expected value"
-                );
-                
-                println!("  ✅ Private Memory Operation Verification Successful");
-                println!("  Successfully stored and loaded private value 0x42 from memory");
-            } else {
-                println!("  Value is not private: {:?}", value);
-                return Err(anyhow::anyhow!("Expected private value"));
-            }
-        },
-        Err(e) => {
-            println!("  Error accessing stack: {:?}", e);
-            return Err(anyhow::anyhow!("Failed to access interpreter stack"));
-        }
-    }
+
+    // Verificamos na ordem da stack (do topo para baixo)
+    verify_garbled_value(&mut interpreter, 0, Some(96), "MSIZE")?;            // MSIZE -> 96
+    verify_garbled_value(&mut interpreter, 1, Some(0x42), "MCOPY LOAD")?;    // MLOAD(0x40) -> 0x42
+    verify_garbled_value(&mut interpreter, 2, Some(0x42), "MSTORE8 LOAD")?;  // MLOAD(0x20) -> 0x42
+    verify_garbled_value(&mut interpreter, 3, Some(0xff), "INITIAL LOAD")?;  // MLOAD(0x00) -> 0xFF
+
+    println!("\n✅ All memory operations verified successfully!");
 
     Ok(())
 }
