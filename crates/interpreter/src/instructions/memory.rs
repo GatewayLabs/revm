@@ -197,31 +197,23 @@ mod tests {
 
         let raw_value = U256::from(42);
 
-        // Define um valor privado para armazenar na memória
-        // let private_value = ruint_to_garbled_uint(&raw_value);
-        // let private_value = GateIndexVec::from(42);
-
-        // Define o offset na memória onde o valor será armazenado
+        // Set offset in memory where the value will be stored
         let offset = U256::from(0);
 
-        // Converte o valor privado para um valor de pilha
-        // let stack_value = StackValueData::Private(GateIndexVec::from(private_value));
-
-        // Empilha o valor e o offset no interpretador
+        // Stack the value and offset in the interpreter
         interpreter.stack.push(raw_value).expect("Failed to push value to stack");
-        // interpreter.stack.push(stack_value).expect("Failed to push value to stack");
         interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
 
-        // Chama a função mstore para armazenar o valor na memória
+        // Calls the mstore function to store the value in memory
         mstore(&mut interpreter, &mut host);
 
-        // Empilha o offset novamente para carregar o valor da memória
+        // Stack the offset again to load the value from memory
         interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
 
-        // Chama a função mload para carregar o valor da memória
+        // Calls the mload function to load the value from memory
         mload(&mut interpreter, &mut host);
 
-        // Desempilha o valor carregado da memória
+        // Pops the value loaded from memory
         let loaded_value = interpreter.stack.pop().expect("Failed to pop value from stack");
 
         let result: GarbledUint256 = interpreter
@@ -229,13 +221,38 @@ mod tests {
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
-        
+        println!("result: {:?}", result);
+        println!("expected_result: {:?}", expected_result);
 
         assert_eq!(garbled_uint_to_ruint(&result), expected_result);
 
-        // Verifica se o valor carregado é igual ao valor original
-        // assert_eq!(loaded_value, StackValueData::Private(GateIndexVec::from(42)));
     }
+
+    // #[test]
+    // fn test_mstore_private() {
+    //     let mut interpreter = generate_interpreter();
+    //     let mut host = generate_host();
+
+    //     // Define a private value to store in memory
+    //     let private_value = GarbledUint256::from(42u64);
+
+    //     // Define the offset in memory where the value will be stored
+    //     let offset = U256::from(0);
+
+    //     // Convert the private value to a stack value
+    //     let stack_value = StackValueData::Private(private_value.clone());
+
+    //     // Push the value and offset to the interpreter
+    //     interpreter.stack.push(stack_value).expect("Failed to push value to stack");
+    //     interpreter.stack.push(offset.into()).expect("Failed to push offset to stack");
+
+    //     // Call the mstore function to store the value in memory
+    //     mstore(&mut interpreter, &mut host);
+
+    //     // Check if the value was stored correctly in private memory
+    //     let stored_value = interpreter.private_memory.get(0).clone();
+    //     assert_eq!(stored_value, private_value);
+    // }
 
     // #[test]
     // fn test_mstore_private() {
