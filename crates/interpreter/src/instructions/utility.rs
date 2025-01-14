@@ -1,4 +1,7 @@
-use compute::{int::GarbledInt, uint::GarbledUint};
+
+pub fn debug_garbled_indices(name: &str, value: &GateIndexVec) {
+    println!("DEBUG {}: index_len={}, indices={:?}", name, value.len(), value);
+}use compute::{int::GarbledInt, prelude::GateIndexVec, uint::GarbledUint};
 use primitives::ruint::Uint;
 
 pub(crate) unsafe fn read_i16(ptr: *const u8) -> i16 {
@@ -16,18 +19,22 @@ pub(crate) unsafe fn read_u16(ptr: *const u8) -> u16 {
     u16::from_be_bytes(core::slice::from_raw_parts(ptr, 2).try_into().unwrap())
 }
 
-pub fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
+pub fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<64> {
     let bytes: [u8; 32] = value.to_le_bytes();
+    
+    let mut bits = Vec::with_capacity(64);
+    for byte in bytes.iter().take(8) {
+        for i in 0..8 {
+            bits.push((byte & (1 << i)) != 0);
+        }
+    }
 
-    let bits: Vec<bool> = bytes
-        .iter()
-        .flat_map(|&byte| (0..8).map(move |i| ((byte >> i) & 1) == 1))
-        .collect();
-
-    GarbledUint::<256>::new(bits)
+    GarbledUint::<64>::new(bits)
 }
 
-pub fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
+pub fn garbled_uint_to_ruint<const N: usize>(value: &GarbledUint<N>) -> Uint<256, 4> {
+    // Ensure we don't exceed the maximum number of chunks
+    let chunk_count = (value.bits.len() + 7) / 8;
     let bytes: Vec<u8> = value
         .bits
         .chunks(8)
@@ -39,8 +46,10 @@ pub fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
         })
         .collect();
 
+    // Create a full array of zeros
     let mut array = [0u8; 32];
-    array.copy_from_slice(&bytes);
+    // Copy only the available bytes
+    array[..chunk_count].copy_from_slice(&bytes[..chunk_count]);
     Uint::from_le_bytes(array)
 }
 
