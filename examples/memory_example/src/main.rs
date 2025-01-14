@@ -4,7 +4,7 @@ use revm::{
 };
 use compute::prelude::GarbledUint256;
 use interpreter::{
-    instructions::utility::garbled_uint_to_ruint, 
+    instructions::utility::garbled_uint64_to_ruint, 
     interpreter::{Interpreter, StackValueData}, 
     table::make_instruction_table, 
     Contract, 
@@ -65,7 +65,7 @@ fn verify_garbled_value(interpreter: &mut Interpreter, index: usize, expected: O
                     println!("  Compiled bits: {:?}", result.bits);
                     println!("  Gate indices: {:?}", gate_indices);
                     
-                    let computed_result = garbled_uint_to_ruint(&result);
+                    let computed_result = garbled_uint64_to_ruint(&result);
                     println!("  {} result: 0x{:x}", name, computed_result);
 
                     if let Some(expected) = expected {
