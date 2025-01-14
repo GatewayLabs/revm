@@ -58,9 +58,6 @@ fn verify_garbled_value(interpreter: &mut Interpreter, index: usize, expected: O
         Ok(value) => {
             match value {
                 StackValueData::Private(gate_indices) => {
-                    println!("  Gate indices: {:?}", gate_indices);
-                    println!("  Gate indices len: {}", gate_indices.len());
-                    
                     let result: GarbledUint256 = interpreter.circuit_builder
                         .compile_and_execute(&gate_indices)
                         .expect(&format!("Failed to execute {} verification circuit", name));
@@ -115,7 +112,6 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n--- Private Memory Operation Verification ---");
 
-    // Verificamos na ordem da stack (do topo para baixo)
     verify_garbled_value(&mut interpreter, 0, Some(96), "MSIZE")?;            // MSIZE -> 96
     verify_garbled_value(&mut interpreter, 1, Some(0x42), "MCOPY LOAD")?;    // MLOAD(0x40) -> 0x42
     verify_garbled_value(&mut interpreter, 2, Some(0x42), "MSTORE8 LOAD")?;  // MLOAD(0x20) -> 0x42
