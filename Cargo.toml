@@ -19,6 +19,7 @@ members = [
     "crates/wiring/transaction",
     "crates/specification",
     "crates/statetest-types",
+    "crates/encryption",
 
     # variants
     "crates/optimism",
