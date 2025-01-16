@@ -172,7 +172,7 @@ mod tests {
     use std::os::macos::raw;
 
     use super::*;
-    use crate::{instructions::utility::{garbled_uint64_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint}, Contract, DummyHost, Interpreter};
+    use crate::{instructions::utility::{garbled_uint64_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint}, interpreter, Contract, DummyHost, Interpreter};
     use compute::{prelude::GateIndexVec, uint::GarbledUint256};
     use primitives::{ruint::Uint, U256};
     use wiring::DefaultEthereumWiring;
@@ -193,6 +193,7 @@ mod tests {
     #[test]
     fn test_mload_private() {
         let mut interpreter = generate_interpreter();
+        // let mut host = generate_host();
         let mut host = generate_host();
 
         let raw_value = U256::from(42);
@@ -336,7 +337,7 @@ mod tests {
         // Pops the size of the private memory
         let size = interpreter.stack.pop().expect("Failed to pop value from stack");
 
-        
+
 
 
         let result: GarbledUint256 = interpreter
@@ -349,4 +350,139 @@ mod tests {
 
         assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
     }
+
+    #[test]
+    fn test_mload_public() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        let raw_value = U256::from(253);
+
+        // Set offset in memory where the value will be stored
+        let offset = U256::from(0);
+
+        // Stack the value and offset in the interpreter
+        interpreter.stack.push(raw_value).expect("Failed to push value to stack");
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mstore function to store the value in memory
+        mstore(&mut interpreter, &mut host);
+
+        // Stack the offset again to load the value from memory
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mload function to load the value from memory
+        mload(&mut interpreter, &mut host);
+
+        // Pops the value loaded from memory
+        let loaded_value = interpreter.stack.pop().expect("Failed to pop value from stack");
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&loaded_value.into())
+            .unwrap();
+        let expected_result = Uint::<256, 4>::from(raw_value);
+        println!("result: {:?}", result);
+        println!("expected_result: {:?}", expected_result);
+
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
+    }
+
+    #[test]
+    fn test_mstore_boundary_conditions() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        let raw_value = U256::from(100);
+
+        // Set offset in memory where the value will be stored
+        let offset = U256::from(0);
+
+        // Stack the value and offset in the interpreter
+        interpreter.stack.push(raw_value).expect("Failed to push value to stack");
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mstore function to store the value in memory
+        mstore(&mut interpreter, &mut host);
+
+        // Stack the offset again to load the value from memory
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mload function to load the value from memory
+        mload(&mut interpreter, &mut host);
+
+        // Pops the value loaded from memory
+        let loaded_value = interpreter.stack.pop().expect("Failed to pop value from stack");
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&loaded_value.into())
+            .unwrap();
+        let expected_result = Uint::<256, 4>::from(raw_value);
+        println!("result: {:?}", result);
+        println!("expected_result: {:?}", expected_result);
+
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
+
+    }
+
+    #[test]
+    fn test_mstore8_public() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        let raw_value = U256::from(42);
+
+        // Set offset in memory where the value will be stored
+        let offset = U256::from(0);
+
+        // Stack the value and offset in the interpreter
+        interpreter.stack.push(raw_value).expect("Failed to push value to stack");
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mstore8 function to store the value in memory
+        mstore8(&mut interpreter, &mut host);
+
+        // Stack the offset again to load the value from memory
+        interpreter.stack.push(offset).expect("Failed to push offset to stack");
+
+        // Calls the mload function to load the value from memory
+        mload(&mut interpreter, &mut host);
+
+        // Pops the value loaded from memory
+        let loaded_value = interpreter.stack.pop().expect("Failed to pop value from stack");
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&loaded_value.into())
+            .unwrap();
+        let expected_result = Uint::<256, 4>::from(raw_value);
+        println!("result: {:?}", result);
+        println!("expected_result: {:?}", expected_result);
+
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
+    }
+
+    #[test]
+    fn test_msize_public() {
+        let mut interpreter = generate_interpreter();
+        let mut host = generate_host();
+
+        // Calls the msize function to get the size of the public memory
+        msize(&mut interpreter, &mut host);
+
+        // Pops the size of the public memory
+        let size = interpreter.stack.pop().expect("Failed to pop value from stack");
+
+        let result: GarbledUint256 = interpreter
+            .circuit_builder
+            .compile_and_execute(&size.into())
+            .unwrap();
+        let expected_result = Uint::<256, 4>::from(U256::from(0));
+        println!("result: {:?}", result);
+        println!("expected_result: {:?}", expected_result);
+
+        assert_eq!(garbled_uint64_to_ruint(&result), expected_result);
+    }
+
 }
