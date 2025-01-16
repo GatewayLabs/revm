@@ -14,7 +14,7 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let new_size = offset.saturating_add(32);
     
     if new_size > current_size {
-        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
+        interpreter.private_memory.resize(new_size);
     }
     
     let value = interpreter.private_memory.get(offset).clone();
@@ -55,7 +55,7 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let new_size = offset.saturating_add(32);
     
     if new_size > current_size {
-        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
+        interpreter.private_memory.resize(new_size);
     }
     
     *interpreter.private_memory.get_mut(offset) = garbled_value;
@@ -107,7 +107,7 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let new_size = offset.saturating_add(1);
     
     if new_size > current_size {
-        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
+        interpreter.private_memory.resize(new_size);
     }
     
     *interpreter.private_memory.get_mut(offset) = garbled_value;
@@ -151,7 +151,7 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     let new_size = core::cmp::max(dst + len, src + len);
     
     if new_size > current_size {
-        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
+        interpreter.private_memory.resize(new_size);
     }
 
     let src_value = interpreter.private_memory.get(src).clone();
@@ -169,13 +169,11 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
 
 #[cfg(test)]
 mod tests {
-    use std::os::macos::raw;
 
     use super::*;
-    use crate::{instructions::utility::{garbled_uint64_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint}, interpreter, Contract, DummyHost, Interpreter};
-    use compute::{prelude::GateIndexVec, uint::GarbledUint256};
+    use crate::{instructions::utility::{garbled_uint64_to_ruint, ruint_to_garbled_uint}, Contract, DummyHost, Interpreter};
+    use compute::uint::GarbledUint256;
     use primitives::{ruint::Uint, U256};
-    use wiring::DefaultEthereumWiring;
 
     fn generate_interpreter() -> Interpreter {
         let contract = Contract::default();

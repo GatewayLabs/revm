@@ -1,4 +1,4 @@
-use compute::{prelude::GateIndexVec, uint::GarbledUint};
+use compute::{prelude::{GateIndexVec, WRK17CircuitBuilder}, uint::GarbledUint};
 use core::fmt;
 use std::vec::Vec;
 
@@ -121,14 +121,14 @@ impl PrivateMemory {
 
     /// Resizes the memory in-place so that `len` is equal to `new_len`.
     #[inline]
-    pub fn resize(&mut self, new_size: usize, circuit_builder: &mut compute::prelude::WRK17CircuitBuilder) {
-        let old_size = self.buffer.len();
-        // Initialize with empty GateIndexVec for new positions
-        for _ in old_size..self.last_checkpoint + new_size {
-            let gate_vec: GarbledUint<1> = GarbledUint::from(false);
-            let zero_value = circuit_builder.input(&gate_vec);
-            self.buffer.push(zero_value);
-        }
+    pub fn resize(&mut self, new_size: usize) {
+        let target_size = self.last_checkpoint + new_size;
+        
+        let mut local_builder = WRK17CircuitBuilder::default();
+        let gate_vec: GarbledUint<1> = GarbledUint::from(false);
+        let zero_value = local_builder.input(&gate_vec);
+        
+        self.buffer.resize_with(target_size, || zero_value.clone());
     }
 
     /// Returns a reference to a GateIndexVec at the given offset.

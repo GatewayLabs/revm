@@ -6,7 +6,6 @@ mod private_memory;
 mod stack;
 
 use compute::prelude::WRK17CircuitBuilder;
-use compute::prelude::GateIndexVec;
 pub use contract::Contract;
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
@@ -471,7 +470,7 @@ pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
         let new_size = (new_words as usize) * 32;
         // Resize both memories
         interpreter.shared_memory.resize(new_size);
-        interpreter.private_memory.resize(new_size, &mut interpreter.circuit_builder);
+        interpreter.private_memory.resize(new_size);
     }
     success
 }
