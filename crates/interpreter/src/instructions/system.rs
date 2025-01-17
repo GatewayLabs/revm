@@ -7,14 +7,42 @@ pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
     pop_top!(interpreter, offset, len_ptr);
     let len = as_usize_or_fail!(interpreter, len_ptr);
     gas_or_fail!(interpreter, gas::keccak256_cost(len as u64));
+    
     let hash = if len == 0 {
         KECCAK_EMPTY
     } else {
         let from = as_usize_or_fail!(interpreter, offset);
-        // TODO: Implement resize memory here
-        // resize_memory!(interpreter, from, len);
+        
+        let new_size = from.saturating_add(len);
+        let current_size = core::cmp::max(
+            interpreter.shared_memory.len(),
+            interpreter.private_memory.len()
+        );
+        
+        if new_size > current_size {
+            #[cfg(feature = "memory_limit")]
+            if interpreter.shared_memory.limit_reached(new_size) {
+                interpreter.instruction_result = InstructionResult::MemoryLimitOOG;
+                return;
+            }
+
+            let new_words = crate::interpreter::num_words(new_size as u64);
+            let new_cost = crate::gas::memory_gas(new_words);
+            let current_cost = interpreter.shared_memory.current_expansion_cost();
+            let cost = new_cost - current_cost;
+            
+            if !interpreter.gas.record_cost(cost) {
+                interpreter.instruction_result = InstructionResult::MemoryOOG;
+                return;
+            }
+            
+            interpreter.shared_memory.resize(new_size);
+            interpreter.private_memory.resize(new_size);
+        }
+
         primitives::keccak256(interpreter.shared_memory.slice(from, len))
     };
+    
     *len_ptr = hash.into();
 }
 
