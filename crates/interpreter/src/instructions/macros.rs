@@ -95,19 +95,18 @@ macro_rules! resize_memory {
     };
     ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
         let new_size = $offset.saturating_add($len);
-        if new_size > $interp.shared_memory.len() {
+        let current_size = core::cmp::max(
+            $interp.shared_memory.len(),
+            $interp.private_memory.len()
+        );
+        if new_size > current_size {
             #[cfg(feature = "memory_limit")]
             if $interp.shared_memory.limit_reached(new_size) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryLimitOOG;
                 return $ret;
             }
 
-            // Note: we can't use `Interpreter` directly here because of potential double-borrows.
-            if !$crate::interpreter::resize_memory(
-                &mut $interp.shared_memory,
-                &mut $interp.gas,
-                new_size,
-            ) {
+            if !$crate::interpreter::resize_memory($interp, new_size) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryOOG;
                 return $ret;
             }

@@ -49,7 +49,10 @@ impl StackValueData {
     pub fn to_garbled_value(&self, circuit_builder: &mut WRK17CircuitBuilder) -> GateIndexVec {
         match self {
             StackValueData::Private(value) => value.clone(),
-            StackValueData::Public(value) => circuit_builder.input(&ruint_to_garbled_uint(value)),
+            StackValueData::Public(value) => {
+                let garbled_uint = ruint_to_garbled_uint(value);
+                circuit_builder.input(&garbled_uint)
+            }
         }
     }
 }
