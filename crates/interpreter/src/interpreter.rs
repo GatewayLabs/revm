@@ -74,30 +74,30 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
-/// Create new interpreter
-pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
-if !contract.bytecode.is_execution_ready() {
-panic!("Contract is not execution ready {:?}", contract.bytecode);
-}
-let is_eof = contract.bytecode.is_eof();
-let bytecode = contract.bytecode.bytecode().clone();
-Self {
-instruction_pointer: bytecode.as_ptr(),
-bytecode,
-contract,
-gas: Gas::new(gas_limit),
-instruction_result: InstructionResult::Continue,
-function_stack: FunctionStack::default(),
-is_static,
-is_eof,
-is_eof_init: false,
-return_data_buffer: Bytes::new(),
-shared_memory: EMPTY_SHARED_MEMORY,
-stack: Stack::new(),
-next_action: InterpreterAction::None,
-circuit_builder: WRK17CircuitBuilder::default(),
-private_memory: EMPTY_PRIVATE_MEMORY,
-}
+    /// Create new interpreter
+    pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
+        if !contract.bytecode.is_execution_ready() {
+        panic!("Contract is not execution ready {:?}", contract.bytecode);
+    }
+    let is_eof = contract.bytecode.is_eof();
+    let bytecode = contract.bytecode.bytecode().clone();
+    Self {
+        instruction_pointer: bytecode.as_ptr(),
+        bytecode,
+        contract,
+        gas: Gas::new(gas_limit),
+        instruction_result: InstructionResult::Continue,
+        function_stack: FunctionStack::default(),
+        is_static,
+        is_eof,
+        is_eof_init: false,
+        return_data_buffer: Bytes::new(),
+        shared_memory: EMPTY_SHARED_MEMORY,
+        stack: Stack::new(),
+        next_action: InterpreterAction::None,
+        circuit_builder: WRK17CircuitBuilder::default(),
+        private_memory: EMPTY_PRIVATE_MEMORY,
+    }
 }
 
 #[cfg(test)]
