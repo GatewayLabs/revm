@@ -33,7 +33,6 @@ members = [
     "examples/uniswap_v2_usdc_swap",
     "examples/add_example",
     "examples/memory_example",
-    #"examples/custom_opcodes",
 ]
 
 [workspace.dependencies]
