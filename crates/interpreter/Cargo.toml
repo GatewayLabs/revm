@@ -29,17 +29,8 @@ specification.workspace = true
 wiring.workspace = true
 transaction.workspace = true
 compute.workspace = true
-encryption = { workspace = true }
-
-# serialization
-serde = { version = "1.0", features = ["derive", "rc"], optional = true }
-serde_json = { version = "1.0", optional = true }
-bincode = { version = "1.3", optional = true }
-base64 = { version = "0.13", optional = true }
-hex = { version = "0.4", optional = true }
-
-# encryption
-solana-zk-sdk = { version = "2.1.8", optional = true }
+bincode = "1.3"
+encryption.workspace = true
 
 # mics
 derive-where = { version = "1.2.7", default-features = false }
