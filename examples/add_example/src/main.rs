@@ -14,7 +14,7 @@ use revm::{
 use compute::prelude::GarbledUint256;
 use interpreter::{
     instructions::utility::garbled_uint_to_ruint, 
-    interpreter::{Interpreter, StackValueData}, 
+    interpreter::{Interpreter, PrivateMemory, StackValueData}, 
     table::make_instruction_table, 
     Contract, 
     DummyHost, 
@@ -160,6 +160,7 @@ fn main() -> anyhow::Result<()> {
     // Execute bytecode
     let _action = interpreter.run(
         SharedMemory::new(),
+        PrivateMemory::new(),
         table,
         &mut host,
     );
