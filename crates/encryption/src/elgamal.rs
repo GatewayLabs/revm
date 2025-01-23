@@ -4,10 +4,14 @@ use solana_zk_sdk::encryption::elgamal::{ElGamalCiphertext, ElGamalKeypair, ElGa
 
 pub struct ElGamalEncryption;
 
+pub type PublicKey = ElGamalPubkey;
+pub type PrivateKey = ElGamalKeypair;
+pub type Ciphertext = ElGamalCiphertext;
+
 impl Encryptor for ElGamalEncryption {
-    type PublicKey = ElGamalPubkey;
-    type PrivateKey = ElGamalKeypair;
-    type Ciphertext = ElGamalCiphertext;
+    type PublicKey = PublicKey;
+    type PrivateKey = PrivateKey;
+    type Ciphertext = Ciphertext;
 
     /// Encrypt data using ElGamal public key with proper padding
     fn encrypt(data: &[u8], public_key: &Self::PublicKey) -> Self::Ciphertext {
