@@ -22,7 +22,9 @@ use interpreter::{
 };
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
-use encryption::elgamal::{ElGamalEncryption, ElGamalKeypair, ElGamalPubkey};
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
+use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
+
 
 // Runtime bytecode that adds two private values from input
 const RUNTIME_CODE: &[u8] = &[
@@ -44,9 +46,8 @@ fn print_bytecode_details(bytecode: &Bytes) {
 
 fn main() -> anyhow::Result<()> {
     // Generate ElGamal keypair
-    let keypair = ElGamalKeypair::new();
-    let public_key = keypair.public();
-    let private_key = keypair.secret();
+    let keypair = ElGamalKeypair::new_rand();
+    let public_key = keypair.pubkey();
 
     // Example private values to be added
     let private_value1 = 14u64.to_le_bytes();
@@ -216,7 +217,7 @@ fn main() -> anyhow::Result<()> {
                 println!("  ✅ Private Computation Verification Successful");
 
                 // Decrypt the result
-                let decrypted_result = ElGamalEncryption::decrypt(&encrypted_value1, &private_key)
+                let decrypted_result = ElGamalEncryption::decrypt(&encrypted_value1, &keypair)
                     .expect("Failed to decrypt result");
                 println!("Decrypted Result: {:?}", decrypted_result);
             } else {

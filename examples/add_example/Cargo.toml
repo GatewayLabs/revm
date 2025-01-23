@@ -27,6 +27,8 @@ database.workspace = true
 interpreter = { workspace = true }
 compute = { workspace = true }
 primitives = { workspace = true }
+encryption = { workspace = true }
+solana-zk-sdk = "2.1.8"
 
 # mics
 anyhow = "1.0.89"

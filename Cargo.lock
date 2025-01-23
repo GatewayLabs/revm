@@ -10,9 +10,11 @@ dependencies = [
  "compute",
  "revm",
  "revm-database",
+ "revm-encryption",
  "revm-interpreter",
  "revm-primitives",
  "serde_json",
+ "solana-zk-sdk",
 ]
 
 [[package]]
