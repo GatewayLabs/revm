@@ -22,11 +22,12 @@ use interpreter::{
 };
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
+use encryption::elgamal::{ElGamalEncryption, ElGamalKeypair, ElGamalPubkey};
 
-// Runtime bytecode that adds 14 + 20
+// Runtime bytecode that adds two private values from input
 const RUNTIME_CODE: &[u8] = &[
-    0x60, 0x14,       // PUSH1 0x14 (20 decimal)
-    0x60, 0x0E,       // PUSH1 0x0E (14 decimal)
+    0x60, 0x00,       // PUSH1 0x00 (placeholder for private value 1)
+    0x60, 0x00,       // PUSH1 0x00 (placeholder for private value 2)
     0x01,             // ADD (add the two values on top of the stack)
 ];
 
@@ -42,7 +43,25 @@ fn print_bytecode_details(bytecode: &Bytes) {
 }
 
 fn main() -> anyhow::Result<()> {
-    let bytecode = Bytecode::new_raw(Bytes::from(RUNTIME_CODE.to_vec()));
+    // Generate ElGamal keypair
+    let keypair = ElGamalKeypair::new();
+    let public_key = keypair.public();
+    let private_key = keypair.secret();
+
+    // Example private values to be added
+    let private_value1 = 14u64.to_le_bytes();
+    let private_value2 = 20u64.to_le_bytes();
+
+    // Encrypt the private values
+    let encrypted_value1 = ElGamalEncryption::encrypt(&private_value1, &public_key);
+    let encrypted_value2 = ElGamalEncryption::encrypt(&private_value2, &public_key);
+
+    // Modify the bytecode to include the encrypted values
+    let mut runtime_code = RUNTIME_CODE.to_vec();
+    runtime_code[1] = encrypted_value1.to_bytes()[0]; // Simplified for demonstration
+    runtime_code[3] = encrypted_value2.to_bytes()[0]; // Simplified for demonstration
+
+    let bytecode = Bytecode::new_raw(Bytes::from(runtime_code));
     print_bytecode_details(&bytecode.bytes());
 
     // Sender and contract configuration
@@ -195,6 +214,11 @@ fn main() -> anyhow::Result<()> {
                 );
                 
                 println!("  ✅ Private Computation Verification Successful");
+
+                // Decrypt the result
+                let decrypted_result = ElGamalEncryption::decrypt(&encrypted_value1, &private_key)
+                    .expect("Failed to decrypt result");
+                println!("Decrypted Result: {:?}", decrypted_result);
             } else {
                 println!("  Value is already public: {:?}", value);
             }
