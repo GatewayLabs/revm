@@ -6,8 +6,8 @@ use crate::{
     Host, Interpreter,
 };
 use compute::prelude::{CircuitExecutor, GateIndexVec};
-use primitives::U256;
 use core::cmp::Ordering;
+use primitives::U256;
 use specification::hardfork::Spec;
 
 pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -61,7 +61,8 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     let result = match op1 {
         StackValueData::Public(value) => {
-            let garbled_gates = StackValueData::Public(*value).to_garbled_value(&mut interpreter.circuit_builder);
+            let garbled_gates =
+                StackValueData::Public(*value).to_garbled_value(&mut interpreter.circuit_builder);
             let eq_result = interpreter.circuit_builder.eq(&garbled_gates, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
@@ -249,7 +250,13 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-            assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+            assert_eq!(
+                garbled_uint_to_bool(&result),
+                test.expected,
+                "Failed for op1: {:?}, op2: {:?}",
+                test.op1,
+                test.op2
+            );
         }
     }
 
@@ -305,7 +312,13 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-            assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+            assert_eq!(
+                garbled_uint_to_bool(&result),
+                test.expected,
+                "Failed for op1: {:?}, op2: {:?}",
+                test.op1,
+                test.op2
+            );
         }
     }
 
@@ -361,7 +374,13 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-            assert_eq!(garbled_uint_to_bool(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+            assert_eq!(
+                garbled_uint_to_bool(&result),
+                test.expected,
+                "Failed for op1: {:?}, op2: {:?}",
+                test.op1,
+                test.op2
+            );
         }
     }
 
@@ -369,31 +388,31 @@ mod tests {
     fn test_iszero() {
         let mut interpreter = generate_interpreter();
         let mut host = generate_host();
-        
+
         struct TestCase {
             value: U256,
-            expected: bool
+            expected: bool,
         }
-    
+
         let test_cases = vec![
             TestCase {
                 value: U256::ZERO,
-                expected: true
+                expected: true,
             },
             TestCase {
                 value: U256::from(1u64),
-                expected: false
+                expected: false,
             },
             TestCase {
                 value: U256::from(0xffffffffffffffffu64),
-                expected: false
+                expected: false,
             },
             TestCase {
                 value: U256::from(0x8000000000000000u64),
-                expected: false
-            }
+                expected: false,
+            },
         ];
-    
+
         for test in test_cases.iter() {
             interpreter
                 .stack
@@ -401,24 +420,24 @@ mod tests {
                 .expect("Failed to push value to stack");
 
             println!("Value: {:?}", test.value);
-    
+
             iszero(&mut interpreter, &mut host);
-    
+
             let output_indices = interpreter.stack.pop().unwrap();
 
             println!("Output indices: {:?}", output_indices);
-            
+
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
             println!("Result: {:?}", garbled_uint_to_bool(&result));
-    
+
             assert_eq!(
-                garbled_uint_to_bool(&result), 
+                garbled_uint_to_bool(&result),
                 test.expected,
-                "Failed for value: {:?}", 
+                "Failed for value: {:?}",
                 test.value
             );
         }
@@ -463,12 +482,17 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-            assert_eq!(garbled_uint_to_ruint(&result), test.expected, "Failed for op1: {:?}", test.op1);
+            assert_eq!(
+                garbled_uint_to_ruint(&result),
+                test.expected,
+                "Failed for op1: {:?}",
+                test.op1
+            );
         }
     }
 
     #[test]
-    fn test_bitand () {
+    fn test_bitand() {
         let mut interpreter = generate_interpreter();
         let mut host = generate_host();
         struct TestCase {
@@ -479,19 +503,19 @@ mod tests {
 
         let test_cases = vec![
             TestCase {
-            op1: U256::from(0x1234567890abcdefu128),
-            op2: U256::from(0xfedcba0987654321u128),
-            expected: U256::from(1302686019935617313u64),
+                op1: U256::from(0x1234567890abcdefu128),
+                op2: U256::from(0xfedcba0987654321u128),
+                expected: U256::from(1302686019935617313u64),
             },
             TestCase {
-            op1: U256::from(0xffffffffffffffffu128),
-            op2: U256::from(0x0000000000000000u128),
-            expected: U256::from(0x0000000000000000u128),
+                op1: U256::from(0xffffffffffffffffu128),
+                op2: U256::from(0x0000000000000000u128),
+                expected: U256::from(0x0000000000000000u128),
             },
             TestCase {
-            op1: U256::from(0x0f0f0f0f0f0f0f0fu128),
-            op2: U256::from(0xf0f0f0f0f0f0f0f0u128),
-            expected: U256::from(0x0000000000000000u128),
+                op1: U256::from(0x0f0f0f0f0f0f0f0fu128),
+                op2: U256::from(0xf0f0f0f0f0f0f0f0u128),
+                expected: U256::from(0x0000000000000000u128),
             },
         ];
 
@@ -514,7 +538,13 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-            assert_eq!(garbled_uint_to_ruint(&result), test.expected, "Failed for op1: {:?}, op2: {:?}", test.op1, test.op2);
+            assert_eq!(
+                garbled_uint_to_ruint(&result),
+                test.expected,
+                "Failed for op1: {:?}, op2: {:?}",
+                test.op1,
+                test.op2
+            );
         }
     }
 
@@ -553,7 +583,7 @@ mod tests {
                 op1: U256::from(0x3400u64),
                 op2: U256::from(0xdc00u64),
                 expected: U256::from(0xfc00u64),
-            }
+            },
         ];
 
         for test in test_cases.iter() {
@@ -574,17 +604,23 @@ mod tests {
                 .circuit_builder
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
-                
+
             let actual = garbled_uint_to_ruint(&result);
 
-            assert_eq!(garbled_uint_to_ruint(&result), test.expected, 
-                "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
-                test.op1, test.op2, actual, test.expected);
-                }
+            assert_eq!(
+                garbled_uint_to_ruint(&result),
+                test.expected,
+                "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}",
+                test.op1,
+                test.op2,
+                actual,
+                test.expected
+            );
+        }
     }
 
     #[test]
-    fn test_bitxor () {
+    fn test_bitxor() {
         let mut interpreter = generate_interpreter();
         let mut host = generate_host();
         struct TestCase {
@@ -623,7 +659,7 @@ mod tests {
                 op1: U256::from(0x3400u64),
                 op2: U256::from(0xdc00u64),
                 expected: U256::from(0xe800u64),
-            }
+            },
         ];
 
         for test in test_cases.iter() {
@@ -645,13 +681,17 @@ mod tests {
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
-           
-                let actual = garbled_uint_to_ruint(&result);
-    
-                assert_eq!(garbled_uint_to_ruint(&result), test.expected, 
-                    "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}", 
-                    test.op1, test.op2, actual, test.expected);
+            let actual = garbled_uint_to_ruint(&result);
 
+            assert_eq!(
+                garbled_uint_to_ruint(&result),
+                test.expected,
+                "Failed for op1: 0x{:x}, op2: 0x{:x}\nGot: 0x{:x}\nExpected: 0x{:x}",
+                test.op1,
+                test.op2,
+                actual,
+                test.expected
+            );
         }
     }
 
