@@ -4113,6 +4113,7 @@ dependencies = [
  "derive-where",
  "revm-bytecode",
  "revm-database-interface",
+ "revm-encryption",
  "revm-primitives",
  "revm-specification",
  "revm-transaction",
