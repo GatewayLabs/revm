@@ -2,7 +2,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion,
 };
 use database::BenchmarkDB;
-use interpreter::{table::make_instruction_table, SharedMemory, EMPTY_SHARED_MEMORY};
+use interpreter::{interpreter::{PrivateMemory, EMPTY_PRIVATE_MEMORY}, table::make_instruction_table, SharedMemory, EMPTY_SHARED_MEMORY};
 use revm::{
     bytecode::Bytecode,
     interpreter::{Contract, DummyHost, Interpreter},
@@ -106,6 +106,7 @@ fn bench_eval(
             ..Default::default()
         };
         let mut shared_memory = SharedMemory::new();
+        let mut private_memory = PrivateMemory::new();
         let mut host = DummyHost::new(*evm.context.evm.env.clone());
         let instruction_table =
             make_instruction_table::<DummyHost<EthereumWiring<BenchmarkDB, ()>>, BerlinSpec>();
@@ -113,12 +114,14 @@ fn bench_eval(
             // replace memory with empty memory to use it inside interpreter.
             // Later return memory back.
             let temp = core::mem::replace(&mut shared_memory, EMPTY_SHARED_MEMORY);
+            let temp_private = core::mem::replace(&mut private_memory, EMPTY_PRIVATE_MEMORY);
             let mut interpreter = Interpreter::new(contract.clone(), u64::MAX, false);
-            let res = interpreter.run(temp, &instruction_table, &mut host);
+            let res = interpreter.run(temp, temp_private, &instruction_table, &mut host);
             shared_memory = interpreter.take_memory();
+            private_memory = interpreter.private_memory;
             host.clear();
             res
-        })
+        });
     });
 }
 

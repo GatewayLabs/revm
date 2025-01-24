@@ -10,7 +10,7 @@ pub use handle_types::*;
 
 use crate::{Context, EvmWiring, Frame};
 use core::mem;
-use interpreter::{table::InstructionTables, Host, InterpreterAction, SharedMemory};
+use interpreter::{interpreter::PrivateMemory, table::InstructionTables, Host, InterpreterAction, SharedMemory};
 use register::{EvmHandler, HandleRegisters};
 use specification::spec_to_generic;
 use std::vec::Vec;
@@ -73,10 +73,11 @@ impl<'a, EvmWiringT: EvmWiring> EvmHandler<'a, EvmWiringT> {
         &self,
         frame: &mut Frame,
         shared_memory: &mut SharedMemory,
+        private_memory: &mut PrivateMemory,
         context: &mut Context<EvmWiringT>,
     ) -> EVMResultGeneric<InterpreterAction, EvmWiringT> {
         self.execution
-            .execute_frame(frame, shared_memory, &self.instruction_table, context)
+            .execute_frame(frame, shared_memory, private_memory, &self.instruction_table, context)
     }
 
     /// Take instruction table.

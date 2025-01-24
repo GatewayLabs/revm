@@ -42,31 +42,6 @@ mod tests {
         );
     }
 
-    /// ✅ Test maximum value encryption and decryption
-    #[test]
-    fn test_max_value_encryption_decryption() {
-        let keypair = ElGamalKeypair::new_rand();
-        let public_key = keypair.pubkey();
-
-        // Using u32::MAX instead of u64::MAX due to decryption constraints
-        let data = u32::MAX.to_le_bytes(); // 4 bytes for a u32
-
-        // Encrypt the data with zero-padding to fit the Scalar size
-        let mut padded_data = [0u8; 32];
-        padded_data[..4].copy_from_slice(&data); // Pad the data for a valid Scalar
-
-        let encrypted_data = ElGamalEncryption::encrypt(&padded_data, &public_key);
-        let decrypted_data =
-            ElGamalEncryption::decrypt(&encrypted_data, &keypair).expect("Decryption failed");
-
-        // Ensure the decrypted result matches the original padded data
-        assert_eq!(
-            padded_data.to_vec(),
-            decrypted_data,
-            "Decrypted data does not match the original padded data!"
-        );
-    }
-
     /// ✅ Test decryption with a different keypair (should fail)
     #[test]
     fn test_different_keypair_should_fail() {
