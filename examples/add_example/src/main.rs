@@ -25,12 +25,12 @@ use revm::wiring::DefaultEthereumWiring;
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
 use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
 
-
-// Runtime bytecode that adds two private values from input
+// Runtime bytecode that adds two encrypted values from input
 const RUNTIME_CODE: &[u8] = &[
-    0x60, 0x00,       // PUSH1 0x00 (placeholder for private value 1)
-    0x60, 0x00,       // PUSH1 0x00 (placeholder for private value 2)
-    0x01,             // ADD (add the two values on top of the stack)
+    // 0x60, 0x20,       // PUSH1 0x20 - Size of each encrypted value (32 bytes)
+    // 0x60, 0x40,       // PUSH1 0x40 - Memory position to store first value
+    // 0x60, 0x00,       // PUSH1 0x00 - Memory position to store second value
+    0x01,             // ADD - Add the two encrypted values
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -45,29 +45,30 @@ fn print_bytecode_details(bytecode: &Bytes) {
 }
 
 fn main() -> anyhow::Result<()> {
+    println!("Starting ElGamal encrypted addition example...");
+
     // Generate ElGamal keypair
     let keypair = ElGamalKeypair::new_rand();
     let public_key = keypair.pubkey();
 
-    // Example private values to be added
-    let private_value1 = 14u64.to_le_bytes();
-    let private_value2 = 20u64.to_le_bytes();
+    // Create the values to be added and encrypt them
+    let value1 = U256::from(14u64);
+    let value2 = U256::from(20u64);
 
-    // Encrypt the private values
-    let encrypted_value1 = ElGamalEncryption::encrypt(&private_value1, &public_key);
-    let encrypted_value2 = ElGamalEncryption::encrypt(&private_value2, &public_key);
+    println!("Original values: {} and {}", value1, value2);
 
-    // Modify the bytecode to include the encrypted values
-    let mut runtime_code = RUNTIME_CODE.to_vec();
-    runtime_code[1] = encrypted_value1.to_bytes()[0]; // Simplified for demonstration
-    runtime_code[3] = encrypted_value2.to_bytes()[0]; // Simplified for demonstration
+    // Encrypt the values
+    let encrypted_value1 = ElGamalEncryption::encrypt(&value1.to_le_bytes::<32>(), &public_key);
+    let encrypted_value2 = ElGamalEncryption::encrypt(&value2.to_le_bytes::<32>(), &public_key);
 
-    let bytecode = Bytecode::new_raw(Bytes::from(runtime_code));
+    println!("Values encrypted successfully");
+
+    let bytecode = Bytecode::new_raw(Bytes::from(RUNTIME_CODE));
     print_bytecode_details(&bytecode.bytes());
 
     // Sender and contract configuration
     let sender = Address::from_slice(&[0x20; 20]);
-    let contract_address = Address::from_slice(&[0x42; 20]); // Fixed contract address
+    let contract_address = Address::from_slice(&[0x42; 20]);
     
     // Transaction parameters
     let gas_limit = 100_000u64;
@@ -171,61 +172,74 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Create interpreter
-    let mut interpreter = Interpreter::new(contract, u64::MAX, false);
+    let mut interpreter = Interpreter::new(contract, gas_limit, false);
+
+    // Push encrypted values to stack
+    if let Err(e) = interpreter.stack.push_stack_value_data(StackValueData::Encrypted(
+        encrypted_value1,
+        keypair.clone(),
+    )) {
+        return Err(anyhow::anyhow!("Failed to push first encrypted value: {:?}", e));
+    }
+
+    if let Err(e) = interpreter.stack.push_stack_value_data(StackValueData::Encrypted(
+        encrypted_value2,
+        keypair.clone(),
+    )) {
+        return Err(anyhow::anyhow!("Failed to push second encrypted value: {:?}", e));
+    }
+
+    println!("\nStack after pushing encrypted values:");
+    println!("{:?}", interpreter.stack);
 
     // Create host and instruction table
     let mut host = DummyHost::<DefaultEthereumWiring>::default();
     let table = &make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
 
-    // Execute bytecode
+    // Execute the addition
+    println!("\nExecuting addition...");
     let _action = interpreter.run(
         SharedMemory::new(),
         table,
         &mut host,
     );
 
-    // Verify and convert private result to public
-    println!("\n--- Private Computation Verification ---");
+    // Verify and decrypt the result
+    println!("\n--- Checking Result ---");
     match interpreter.stack().peek(0) {
         Ok(value) => {
-            println!("  Top of Stack Value: {:?}", value);
+            println!("Top of stack value: {:?}", value);
             
-            if let StackValueData::Private(gate_indices) = value {
-                println!("  Detected Private Value");
-                println!("  Gate Indices: {:?}", gate_indices);
-                
-                let result: GarbledUint256 = interpreter.circuit_builder.compile_and_execute(&gate_indices)
-                    .map_err(|e| {
-                        println!("  Circuit Compilation Error: {:?}", e);
-                        e
-                    })?;
-                
-                let public_result = garbled_uint_to_ruint(&result);
-                
-                println!("  Private Computation Result: {:?}", public_result);
-                
-                // Verification against expected result
-                let expected_result = 20 + 14;
-                println!("  Expected Result: {}", expected_result);
-                
-                assert_eq!(
-                    public_result.to_string(), 
-                    expected_result.to_string(), 
-                    "Private computation result does not match expected value"
-                );
-                
-                println!("  ✅ Private Computation Verification Successful");
-
-                // Decrypt the result
-                let decrypted_result = ElGamalEncryption::decrypt(&encrypted_value1, &keypair)
-                    .expect("Failed to decrypt result");
-                println!("Decrypted Result: {:?}", decrypted_result);
-            } else {
-                println!("  Value is already public: {:?}", value);
+            match value {
+                StackValueData::Encrypted(ciphertext, key) => {
+                    let result = ElGamalEncryption::decrypt_to_u256(&ciphertext, &key);
+                    println!("Decrypted Result: {}", result);
+                    
+                    // Verify the result
+                    let expected = value1 + value2;
+                    assert_eq!(
+                        result, 
+                        expected,
+                        "Decrypted result does not match expected value"
+                    );
+                    println!("✅ Result verified successfully!");
+                },
+                StackValueData::Private(gate_indices) => {
+                    let result: GarbledUint256 = interpreter.circuit_builder
+                        .compile_and_execute(&gate_indices)
+                        .map_err(|e| anyhow::anyhow!("Circuit compilation failed: {:?}", e))?;
+                    
+                    let public_result = garbled_uint_to_ruint(&result);
+                    println!("Private computation result: {}", public_result);
+                    // 64 -> 34
+                },
+                StackValueData::Public(value) => {
+                    println!("Public result: {}", value);
+                }
             }
         },
         Err(e) => {
-            println!("  Error accessing stack: {:?}", e);
+            println!("Error accessing stack: {:?}", e);
             return Err(anyhow::anyhow!("Failed to access interpreter stack"));
         }
     }
