@@ -1,3 +1,5 @@
+use primitives::U256;
+
 /// Trait for encryption abstraction to support multiple algorithms
 pub trait Encryptor {
     type PublicKey;
@@ -9,4 +11,7 @@ pub trait Encryptor {
 
     /// Decrypt a ciphertext and return the original data
     fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::PrivateKey) -> Option<Vec<u8>>;
+
+    /// Decrypt a ciphertext and return the original data as a U256
+    fn decrypt_to_u256(ciphertext: &Self::Ciphertext, private_key: &Self::PrivateKey) -> U256;
 }

@@ -6,6 +6,10 @@ use crate::{
     Host, Interpreter,
 };
 use compute::prelude::{CircuitExecutor, GateIndexVec};
+use encryption::{
+    elgamal::ElGamalEncryption,
+    encryption_trait::Encryptor
+};
 use core::cmp::Ordering;
 use primitives::U256;
 use specification::hardfork::Spec;
@@ -68,6 +72,13 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         }
         StackValueData::Private(garbled) => {
             let eq_result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
+            StackValueData::Private(GateIndexVec::from(eq_result))
+        }
+        StackValueData::Encrypted(value, key) => {
+            let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
+            let garbled_gates =
+                StackValueData::Public(decrypted).to_garbled_value(&mut interpreter.circuit_builder);
+            let eq_result = interpreter.circuit_builder.eq(&garbled_gates, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
     };

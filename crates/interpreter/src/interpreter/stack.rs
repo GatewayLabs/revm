@@ -1,7 +1,11 @@
 use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use core::{fmt, ptr};
-use encryption::elgamal::{Ciphertext, PrivateKey};
+use encryption::{
+    elgamal::{Ciphertext, PrivateKey, ElGamalEncryption}, 
+    encryption_trait::Encryptor
+};
+
 use primitives::{FixedBytes, B256, U256};
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
@@ -35,10 +39,7 @@ impl Into<U256> for StackValueData {
             StackValueData::Public(value) => value,
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
             StackValueData::Encrypted(value, keypair) => {
-                let decrypted_value = value
-                    .decrypt_u32(&keypair.secret())
-                    .unwrap_or_else(|| panic!("Decryption failed"));
-                U256::from(decrypted_value)
+                ElGamalEncryption::decrypt_to_u256(&value, &keypair)
             }
         }
     }
@@ -65,10 +66,7 @@ impl StackValueData {
                 circuit_builder.input(&garbled_uint)
             }
             StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap();
+                let value = ElGamalEncryption::decrypt_to_u256(ciphertext, keypair);
                 let garbled_uint = ruint_to_garbled_uint(&value);
                 circuit_builder.input(&garbled_uint)
             }
@@ -102,11 +100,7 @@ impl StackValueData {
             StackValueData::Public(value) => *value,
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
             StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap_or_else(|| panic!("Decryption failed"));
-                value
+                ElGamalEncryption::decrypt_to_u256(ciphertext, keypair)
             }
         }
     }
@@ -118,10 +112,7 @@ impl StackValueData {
             StackValueData::Public(value) => value.as_limbs(),
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
             StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap_or_else(|| panic!("Decryption failed"));
+                let value = ElGamalEncryption::decrypt_to_u256(ciphertext, keypair);
                 let value = value.as_limbs().to_owned();
                 Box::leak(Box::new(value))
             }
