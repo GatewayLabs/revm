@@ -95,10 +95,8 @@ macro_rules! resize_memory {
     };
     ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
         let new_size = $offset.saturating_add($len);
-        let current_size = core::cmp::max(
-            $interp.shared_memory.len(),
-            $interp.private_memory.len()
-        );
+        let current_size =
+            core::cmp::max($interp.shared_memory.len(), $interp.private_memory.len());
         if new_size > current_size {
             #[cfg(feature = "memory_limit")]
             if $interp.shared_memory.limit_reached(new_size) {
