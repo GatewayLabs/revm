@@ -5,9 +5,7 @@ use crate::{
 use bytecode::EOF_MAGIC_BYTES;
 use core::mem;
 use interpreter::{
-    return_ok, return_revert, table::InstructionTables, CallInputs, CallOutcome, CallScheme,
-    CallValue, CreateInputs, CreateOutcome, CreateScheme, EOFCreateInputs, EOFCreateKind, Gas,
-    InterpreterAction, InterpreterResult, NewFrameAction, SharedMemory, EMPTY_SHARED_MEMORY,
+    interpreter::{PrivateMemory, EMPTY_PRIVATE_MEMORY}, return_ok, return_revert, table::InstructionTables, CallInputs, CallOutcome, CallScheme, CallValue, CreateInputs, CreateOutcome, CreateScheme, EOFCreateInputs, EOFCreateKind, Gas, InterpreterAction, InterpreterResult, NewFrameAction, SharedMemory, EMPTY_SHARED_MEMORY
 };
 use primitives::TxKind;
 use specification::hardfork::{Spec, SpecId};
@@ -22,14 +20,16 @@ use wiring::{
 pub fn execute_frame<EvmWiringT: EvmWiring, SPEC: Spec>(
     frame: &mut Frame,
     shared_memory: &mut SharedMemory,
+    private_memory: &mut PrivateMemory,
     instruction_tables: &InstructionTables<'_, Context<EvmWiringT>>,
     context: &mut Context<EvmWiringT>,
 ) -> EVMResultGeneric<InterpreterAction, EvmWiringT> {
     let interpreter = frame.interpreter_mut();
     let memory = mem::replace(shared_memory, EMPTY_SHARED_MEMORY);
+    let private_memory: PrivateMemory = mem::replace(private_memory, EMPTY_PRIVATE_MEMORY);
     let next_action = match instruction_tables {
-        InstructionTables::Plain(table) => interpreter.run(memory, table, context),
-        InstructionTables::Boxed(table) => interpreter.run(memory, table, context),
+        InstructionTables::Plain(table) => interpreter.run(memory, private_memory, table, context),
+        InstructionTables::Boxed(table) => interpreter.run(memory, private_memory, table, context),
     };
     // Take the shared memory back.
     *shared_memory = interpreter.take_memory();

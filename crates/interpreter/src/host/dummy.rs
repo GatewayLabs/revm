@@ -1,4 +1,4 @@
-use crate::{Host, SStoreResult, SelfDestructResult};
+use crate::{interpreter::PrivateMemory, Host, SStoreResult, SelfDestructResult};
 use derive_where::derive_where;
 use primitives::{hash_map::Entry, Address, Bytes, HashMap, Log, B256, KECCAK_EMPTY, U256};
 use std::vec::Vec;
