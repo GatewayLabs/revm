@@ -23,14 +23,36 @@ use interpreter::{
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
-use solana_zk_sdk::encryption::elgamal::ElGamalKeypair;
+use solana_zk_sdk::encryption::elgamal::{ElGamalKeypair, ElGamalCiphertext as Ciphertext};
+use bincode;
 
-// Runtime bytecode that adds two encrypted values from input
+// Runtime bytecode que lê e escreve o Ciphertext completo
 const RUNTIME_CODE: &[u8] = &[
-    // 0x60, 0x20,       // PUSH1 0x20 - Size of each encrypted value (32 bytes)
-    // 0x60, 0x40,       // PUSH1 0x40 - Memory position to store first value
-    // 0x60, 0x00,       // PUSH1 0x00 - Memory position to store second value
-    0x01,             // ADD - Add the two encrypted values
+    // Copy first number to memory
+    0x60, 0x02,       // PUSH1 0x02 - valor do primeiro número (2)
+    0x60, 0x00,       // PUSH1 0x00 - posição de memória
+    0x52,             // MSTORE - armazena o primeiro número na memória no offset 0x00
+
+    // Copy second number to memory 
+    0x60, 0x05,       // PUSH1 0x05 - valor do segundo número (5)
+    0x60, 0x20,       // PUSH1 0x20 - posição de memória para o segundo número
+    0x52,             // MSTORE - armazena o segundo número na memória no offset 0x20
+
+    // Load and add the two numbers
+    0x60, 0x00,       // PUSH1 0x00 - primeiro offset de memória
+    0x51,             // MLOAD - carrega o primeiro valor (2)
+    0x60, 0x20,       // PUSH1 0x20 - segundo offset de memória
+    0x51,             // MLOAD - carrega o segundo valor (5)
+    0x01,             // ADD
+    
+    // Store the result
+    0x60, 0x40,       // PUSH1 0x40 - offset para armazenar resultado
+    0x52,             // MSTORE
+
+    // Return the result
+    0x60, 0x20,       // PUSH1 0x20 - tamanho (32 bytes)
+    0x60, 0x40,       // PUSH1 0x40 - offset de onde retornar
+    0xf3,             // RETURN
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -62,6 +84,19 @@ fn main() -> anyhow::Result<()> {
     let encrypted_value2 = ElGamalEncryption::encrypt(&value2.to_le_bytes::<32>(), &public_key);
 
     println!("Values encrypted successfully");
+
+    // Debug prints for sizes
+    println!("Size of commitment: {} bytes", std::mem::size_of_val(&encrypted_value1.commitment));
+    println!("Size of handle: {} bytes", std::mem::size_of_val(&encrypted_value1.handle));
+
+    // Serialize encrypted values into bytes for calldata
+    let mut calldata = Vec::new();
+    bincode::serialize_into(&mut calldata, &encrypted_value1).expect("Failed to serialize value1");
+    println!("Size of serialized ciphertext: {} bytes", calldata.len());
+    bincode::serialize_into(&mut calldata, &encrypted_value2).expect("Failed to serialize value2");
+    println!("Raw calldata hex: 0x{}", hex::encode(&calldata));
+    println!("Calldata size: {} bytes", calldata.len());
+    let calldata = Bytes::from(calldata);
 
     let bytecode = Bytecode::new_raw(Bytes::from(RUNTIME_CODE));
     print_bytecode_details(&bytecode.bytes());
@@ -107,8 +142,8 @@ fn main() -> anyhow::Result<()> {
             .with_db(db)
             .with_default_ext_ctx()
             .modify_tx_env(|tx| {
-                tx.transact_to = TxKind::Call(contract_address); // Call the contract
-                tx.data = bytecode.bytes().clone(); // Bytecode as call data
+                tx.transact_to = TxKind::Call(contract_address);
+                tx.data = calldata; // Pass encrypted values in calldata
                 tx.gas_limit = gas_limit;
                 tx.gas_price = gas_price;
                 tx.value = value;
@@ -139,7 +174,41 @@ fn main() -> anyhow::Result<()> {
             // Verify output or additional checks if needed
             match output {
                 Output::Call(data) => {
-                    println!("  Call Output: {:?}", data);
+                    println!("  Call Output length: {} bytes", data.len());
+                    println!("  Call Output hex: 0x{}", hex::encode(&data));
+                    
+                    // Debug print the raw bytes before attempting deserialization
+                    println!("  Raw Output bytes: {:?}", data.as_ref());
+                    
+                    if data.len() == 64 {
+                        let result_ciphertext: Ciphertext = bincode::deserialize(&data)
+                            .expect("Failed to deserialize result");
+                        
+                        // Decrypt and verify the result
+                        let result = ElGamalEncryption::decrypt_to_u256(&result_ciphertext, &keypair);
+                        println!("Decrypted Result: {}", result);
+                        
+                        let expected = value1 + value2;
+                        assert_eq!(
+                            result,
+                            expected,
+                            "Decrypted result does not match expected value"
+                        );
+                        println!("✅ Result verified successfully!");
+                    } else {
+                        let mut byte_array = [0u8; 32];
+                        byte_array.copy_from_slice(&data[..32]);
+                        let result_value = U256::from_le_bytes(byte_array);
+                        println!("Parsed value: {}", result_value);
+                        
+                        let expected = value1 + value2;
+                        assert_eq!(
+                            result_value,
+                            expected,
+                            "Result does not match expected value"
+                        );
+                        println!("✅ Result verified successfully!");
+                    }
                 },
                 Output::Create(address, _) => {
                     println!("  Created Contract Address: {:?}", address);
@@ -171,17 +240,20 @@ fn main() -> anyhow::Result<()> {
         U256::ZERO,
     );
 
+    
+
     // Create interpreter
     let mut interpreter = Interpreter::new(contract, gas_limit, false);
 
     // Push encrypted values to stack
-    if let Err(e) = interpreter.stack.push_stack_value_data(StackValueData::Encrypted(
-        encrypted_value1,
-        keypair.clone(),
-    )) {
+    println!("Tipo do encrypted_value1: {:?}", encrypted_value1);
+    println!("Tipo do keypair: {:?}", keypair);
+    println!("Criando StackValueData::Encrypted...");
+    let stack_value = StackValueData::Encrypted(encrypted_value1, keypair.clone());
+    println!("StackValueData criado: {:?}", stack_value);
+    if let Err(e) = interpreter.stack.push_stack_value_data(stack_value) {
         return Err(anyhow::anyhow!("Failed to push first encrypted value: {:?}", e));
     }
-
     if let Err(e) = interpreter.stack.push_stack_value_data(StackValueData::Encrypted(
         encrypted_value2,
         keypair.clone(),
