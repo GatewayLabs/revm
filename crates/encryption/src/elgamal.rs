@@ -13,30 +13,19 @@ impl Encryptor for ElGamalEncryption {
     type PublicKey = PublicKey;
     type PrivateKey = PrivateKey;
     type Ciphertext = Ciphertext;
-
+    
+    /// Encrypt data using ElGamal public key with proper padding
     fn encrypt(data: &[u8], public_key: &Self::PublicKey) -> Self::Ciphertext {
-        // Convert input bytes to u32
-        let value = u32::from_le_bytes(data[..4].try_into().unwrap());
-        
-        // Convert to scalar (garantido ser menor que a ordem do grupo)
-        let scalar = Scalar::from(value);
-        
-        public_key.encrypt(scalar)
+        // Ensure data is padded to 32 bytes for scalar conversion
+        let mut padded_data = [0u8; 32]; // Create a zeroed 32-byte array
+        let data_len = data.len().min(32); // Ensure it doesn't overflow
+        padded_data[..data_len].copy_from_slice(&data[..data_len]); // Pad the data
+
+        let scalar_value =
+            Scalar::from_canonical_bytes(padded_data).expect("Failed to convert data into Scalar.");
+
+        public_key.encrypt(scalar_value)
     }
-
-    // TODO: Chekc if this is necessary
-    // /// Encrypt data using ElGamal public key with proper padding
-    // fn encrypt(data: &[u8], public_key: &Self::PublicKey) -> Self::Ciphertext {
-    //     // Ensure data is padded to 32 bytes for scalar conversion
-    //     let mut padded_data = [0u8; 32]; // Create a zeroed 32-byte array
-    //     let data_len = data.len().min(32); // Ensure it doesn't overflow
-    //     padded_data[..data_len].copy_from_slice(&data[..data_len]); // Pad the data
-
-    //     let scalar_value =
-    //         Scalar::from_canonical_bytes(padded_data).expect("Failed to convert data into Scalar.");
-
-    //     public_key.encrypt(scalar_value)
-    // }
 
     /// Decrypt data using the ElGamal ciphertext's own method
     fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::PrivateKey) -> Option<Vec<u8>> {

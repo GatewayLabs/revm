@@ -2,7 +2,7 @@ use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use core::{fmt, ptr};
 use encryption::{
-    elgamal::{Ciphertext, PrivateKey, ElGamalEncryption}, 
+    elgamal::{Ciphertext, PrivateKey, PublicKey, ElGamalEncryption}, 
     encryption_trait::Encryptor
 };
 
@@ -38,8 +38,8 @@ impl Into<U256> for StackValueData {
         match self {
             StackValueData::Public(value) => value,
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
-            StackValueData::Encrypted(value, keypair) => {
-                ElGamalEncryption::decrypt_to_u256(&value, &keypair)
+            StackValueData::Encrypted(ciphertext, keypair) => {
+                ElGamalEncryption::decrypt_to_u256(&ciphertext, &keypair)
             }
         }
     }
@@ -58,6 +58,16 @@ impl Into<GateIndexVec> for StackValueData {
 }
 
 impl StackValueData {
+    pub fn to_encrypted(&self, key: &PrivateKey) -> Self {
+        match self {
+            StackValueData::Public(value) => {
+                let ciphertext = ElGamalEncryption::encrypt(&value.to_le_bytes::<32>(), key.pubkey());
+                StackValueData::Encrypted(ciphertext, key.clone())
+            },
+            StackValueData::Private(_) => panic!("Cannot encrypt private value"),
+            StackValueData::Encrypted(_, _) => self.clone(), // já está encriptado
+        }
+    }
     pub fn to_garbled_value(&self, circuit_builder: &mut WRK17CircuitBuilder) -> GateIndexVec {
         match self {
             StackValueData::Private(value) => value.clone(),
