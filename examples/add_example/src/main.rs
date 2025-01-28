@@ -26,33 +26,27 @@ use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
 use solana_zk_sdk::encryption::elgamal::{ElGamalKeypair, ElGamalCiphertext as Ciphertext};
 use bincode;
 
-// Runtime bytecode que lê e escreve o Ciphertext completo
 const RUNTIME_CODE: &[u8] = &[
-    // Copy first number to memory
-    0x60, 0x02,       // PUSH1 0x02 - valor do primeiro número (2)
-    0x60, 0x00,       // PUSH1 0x00 - posição de memória
-    0x52,             // MSTORE - armazena o primeiro número na memória no offset 0x00
+    0x60, 0x0E,       // PUSH1 0x0E - first number (14)
+    0x60, 0x00,       // PUSH1 0x00 - initial memory position
+    0x52,             // MSTORE - store 14 at the start of memory
 
-    // Copy second number to memory 
-    0x60, 0x05,       // PUSH1 0x05 - valor do segundo número (5)
-    0x60, 0x20,       // PUSH1 0x20 - posição de memória para o segundo número
-    0x52,             // MSTORE - armazena o segundo número na memória no offset 0x20
+    0x60, 0x14,       // PUSH1 0x14 - second number (20)
+    0x60, 0x20,       // PUSH1 0x20 - memory position at offset 32
+    0x52,             // MSTORE - store 20 at offset 32
 
-    // Load and add the two numbers
-    0x60, 0x00,       // PUSH1 0x00 - primeiro offset de memória
-    0x51,             // MLOAD - carrega o primeiro valor (2)
-    0x60, 0x20,       // PUSH1 0x20 - segundo offset de memória
-    0x51,             // MLOAD - carrega o segundo valor (5)
-    0x01,             // ADD
+    0x60, 0x00,       // PUSH1 0x00 - first memory offset
+    0x51,             // MLOAD - load the first value (14)
+    0x60, 0x20,       // PUSH1 0x20 - second memory offset
+    0x51,             // MLOAD - load the second value (20)
+    0x01,             // ADD - add the values
     
-    // Store the result
-    0x60, 0x40,       // PUSH1 0x40 - offset para armazenar resultado
-    0x52,             // MSTORE
+    0x60, 0x40,       // PUSH1 0x40 - offset to store result
+    0x52,             // MSTORE - store the result at offset 64
 
-    // Return the result
-    0x60, 0x20,       // PUSH1 0x20 - tamanho (32 bytes)
-    0x60, 0x40,       // PUSH1 0x40 - offset de onde retornar
-    0xf3,             // RETURN
+    0x60, 0x20,       // PUSH1 0x20 - size to return (32 bytes)
+    0x60, 0x40,       // PUSH1 0x40 - offset to return from
+    0xf3              // RETURN
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -229,10 +223,26 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    const RUNTIME_CODE2: &[u8] = &[
+        0x60, 0x00,       // PUSH1 0x00 - first offset
+        0x51,             // MLOAD - load first value
+        0x60, 0x20,       // PUSH1 0x20 - second offset
+        0x51,             // MLOAD - load second valor
+        0x01,             // ADD - add values
+        
+        0x60, 0x40,       // PUSH1 0x40 - offset to save result
+        0x52,             // MSTORE
+
+        0x60, 0x20,       // PUSH1 0x20 - size to return
+        0x60, 0x40,       // PUSH1 0x40 - offset of result
+        0xf3              // RETURN
+    ];
+    let bytecode2 = Bytecode::new_raw(Bytes::from(RUNTIME_CODE2));
+
     // Private Computation Circuit Verification
     let contract = Contract::new(
         Bytes::new(),
-        bytecode.clone(),
+        bytecode2.clone(),
         None,
         Address::default(),
         None,
@@ -240,29 +250,33 @@ fn main() -> anyhow::Result<()> {
         U256::ZERO,
     );
 
-    
-
     // Create interpreter
     let mut interpreter = Interpreter::new(contract, gas_limit, false);
 
     // Push encrypted values to stack
-    println!("Tipo do encrypted_value1: {:?}", encrypted_value1);
-    println!("Tipo do keypair: {:?}", keypair);
-    println!("Criando StackValueData::Encrypted...");
-    let stack_value = StackValueData::Encrypted(encrypted_value1, keypair.clone());
-    println!("StackValueData criado: {:?}", stack_value);
-    if let Err(e) = interpreter.stack.push_stack_value_data(stack_value) {
-        return Err(anyhow::anyhow!("Failed to push first encrypted value: {:?}", e));
-    }
-    if let Err(e) = interpreter.stack.push_stack_value_data(StackValueData::Encrypted(
-        encrypted_value2,
-        keypair.clone(),
-    )) {
-        return Err(anyhow::anyhow!("Failed to push second encrypted value: {:?}", e));
+    println!("Creating StackValueData::Encrypted...");
+
+    // Create stack values with more detailed error handling
+    let stack_value1 = StackValueData::Encrypted(encrypted_value1.clone(), keypair.clone());
+    let stack_value2 = StackValueData::Encrypted(encrypted_value2.clone(), keypair.clone());
+
+    // Push first encrypted value
+    match interpreter.stack.push_stack_value_data(stack_value1) {
+        Ok(_) => println!("Successfully pushed first encrypted value"),
+        Err(e) => {
+            println!("Error pushing first encrypted value: {:?}", e);
+            return Err(anyhow::anyhow!("Failed to push first encrypted value: {:?}", e));
+        }
     }
 
-    println!("\nStack after pushing encrypted values:");
-    println!("{:?}", interpreter.stack);
+    // Push second encrypted value
+    match interpreter.stack.push_stack_value_data(stack_value2) {
+        Ok(_) => println!("Successfully pushed second encrypted value"),
+        Err(e) => {
+            println!("Error pushing second encrypted value: {:?}", e);
+            return Err(anyhow::anyhow!("Failed to push second encrypted value: {:?}", e));
+        }
+    }
 
     // Create host and instruction table
     let mut host = DummyHost::<DefaultEthereumWiring>::default();
@@ -280,8 +294,6 @@ fn main() -> anyhow::Result<()> {
     println!("\n--- Checking Result ---");
     match interpreter.stack().peek(0) {
         Ok(value) => {
-            println!("Top of stack value: {:?}", value);
-            
             match value {
                 StackValueData::Encrypted(ciphertext, key) => {
                     let result = ElGamalEncryption::decrypt_to_u256(&ciphertext, &key);
@@ -303,7 +315,6 @@ fn main() -> anyhow::Result<()> {
                     
                     let public_result = garbled_uint_to_ruint(&result);
                     println!("Private computation result: {}", public_result);
-                    // 64 -> 34
                 },
                 StackValueData::Public(value) => {
                     println!("Public result: {}", value);
