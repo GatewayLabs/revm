@@ -11,17 +11,6 @@ use revm::{
     Evm,
     bytecode::Bytecode,
 };
-use compute::prelude::GarbledUint256;
-use interpreter::{
-    instructions::utility::garbled_uint_to_ruint, 
-    interpreter::{Interpreter, PrivateMemory, StackValueData}, 
-    table::make_instruction_table, 
-    Contract, 
-    DummyHost, 
-    SharedMemory
-};
-use revm::specification::hardfork::CancunSpec;
-use revm::wiring::DefaultEthereumWiring;
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
 use solana_zk_sdk::encryption::elgamal::{ElGamalKeypair, ElGamalCiphertext as Ciphertext};
 use bincode;
@@ -220,111 +209,6 @@ fn main() -> anyhow::Result<()> {
             println!("  Reason: {:?}", reason);
             println!("  Gas Used: {}", gas_used);
             return Err(anyhow::anyhow!("EVM Execution Halted"));
-        }
-    }
-
-    const RUNTIME_CODE2: &[u8] = &[
-        0x60, 0x00,       // PUSH1 0x00 - first offset
-        0x51,             // MLOAD - load first value
-        0x60, 0x20,       // PUSH1 0x20 - second offset
-        0x51,             // MLOAD - load second valor
-        0x01,             // ADD - add values
-        
-        0x60, 0x40,       // PUSH1 0x40 - offset to save result
-        0x52,             // MSTORE
-
-        0x60, 0x20,       // PUSH1 0x20 - size to return
-        0x60, 0x40,       // PUSH1 0x40 - offset of result
-        0xf3              // RETURN
-    ];
-    let bytecode2 = Bytecode::new_raw(Bytes::from(RUNTIME_CODE2));
-
-    // Private Computation Circuit Verification
-    let contract = Contract::new(
-        Bytes::new(),
-        bytecode2.clone(),
-        None,
-        Address::default(),
-        None,
-        Address::default(),
-        U256::ZERO,
-    );
-
-    // Create interpreter
-    let mut interpreter = Interpreter::new(contract, gas_limit, false);
-
-    // Push encrypted values to stack
-    println!("Creating StackValueData::Encrypted...");
-
-    // Create stack values with more detailed error handling
-    let stack_value1 = StackValueData::Encrypted(encrypted_value1.clone(), keypair.clone());
-    let stack_value2 = StackValueData::Encrypted(encrypted_value2.clone(), keypair.clone());
-
-    // Push first encrypted value
-    match interpreter.stack.push_stack_value_data(stack_value1) {
-        Ok(_) => println!("Successfully pushed first encrypted value"),
-        Err(e) => {
-            println!("Error pushing first encrypted value: {:?}", e);
-            return Err(anyhow::anyhow!("Failed to push first encrypted value: {:?}", e));
-        }
-    }
-
-    // Push second encrypted value
-    match interpreter.stack.push_stack_value_data(stack_value2) {
-        Ok(_) => println!("Successfully pushed second encrypted value"),
-        Err(e) => {
-            println!("Error pushing second encrypted value: {:?}", e);
-            return Err(anyhow::anyhow!("Failed to push second encrypted value: {:?}", e));
-        }
-    }
-
-    // Create host and instruction table
-    let mut host = DummyHost::<DefaultEthereumWiring>::default();
-    let table = &make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
-
-    // Execute the addition
-    println!("\nExecuting addition...");
-    let _action = interpreter.run(
-        SharedMemory::new(),
-        PrivateMemory::new(),
-        table,
-        &mut host,
-    );
-
-    // Verify and decrypt the result
-    println!("\n--- Checking Result ---");
-    match interpreter.stack().peek(0) {
-        Ok(value) => {
-            match value {
-                StackValueData::Encrypted(ciphertext, key) => {
-                    let result = ElGamalEncryption::decrypt_to_u256(&ciphertext, &key);
-                    println!("Decrypted Result: {}", result);
-                    
-                    // Verify the result
-                    let expected = value1 + value2;
-                    assert_eq!(
-                        result, 
-                        expected,
-                        "Decrypted result does not match expected value"
-                    );
-                    println!("✅ Result verified successfully!");
-                },
-                StackValueData::Private(gate_indices) => {
-                    let result: GarbledUint256 = interpreter.circuit_builder
-                        .compile_and_execute(&gate_indices)
-                        .map_err(|e| anyhow::anyhow!("Circuit compilation failed: {:?}", e))?;
-                    
-                    let public_result = garbled_uint_to_ruint(&result);
-                    println!("Private computation result: {}", public_result);
-                },
-                StackValueData::Public(value) => {
-                    println!("Public result: {}", value);
-                }
-            }
-        },
-        Err(e) => {
-            println!("Error accessing stack: {:?}", e);
-            return Err(anyhow::anyhow!("Failed to access interpreter stack"));
         }
     }
 
