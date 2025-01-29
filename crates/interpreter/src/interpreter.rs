@@ -386,6 +386,7 @@ impl Interpreter {
     pub fn run<FN, H: Host + ?Sized>(
         &mut self,
         shared_memory: SharedMemory,
+        private_memory: PrivateMemory,
         instruction_table: &[FN; 256],
         host: &mut H,
     ) -> InterpreterAction
@@ -394,6 +395,7 @@ impl Interpreter {
     {
         self.next_action = InterpreterAction::None;
         self.shared_memory = shared_memory;
+        self.private_memory = private_memory;
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
@@ -496,7 +498,7 @@ mod tests {
         let mut host = crate::DummyHost::<DefaultEthereumWiring>::default();
         let table: &InstructionTable<DummyHost<DefaultEthereumWiring>> =
             &crate::table::make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, table, &mut host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, &mut host);
 
         let host: &mut dyn Host<EvmWiringT = DefaultEthereumWiring> =
             &mut host as &mut dyn Host<EvmWiringT = DefaultEthereumWiring>;
@@ -505,6 +507,6 @@ mod tests {
                 dyn Host<EvmWiringT = DefaultEthereumWiring>,
                 CancunSpec,
             >();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, table, host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, host);
     }
 }
