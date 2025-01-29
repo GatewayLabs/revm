@@ -5,10 +5,6 @@ use crate::{
 use compute::uint::GarbledUint;
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
-// use encryption::{
-//     elgamal::ElGamalEncryption,
-//     encryption_trait::Encryptor
-// };
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
@@ -44,12 +40,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 }
             }
         }
-        // StackValueData::Encrypted(value, key) => {
-        //     let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
-        //     if !decrypted.is_zero() {
-        //         offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-        //     }
-        // }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
 
     interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset) };
@@ -74,10 +65,7 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 return;
             }
         }
-        // StackValueData::Encrypted(value, key ) => {
-        //     let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
-        //     as_isize_saturated!(decrypted)
-        // }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     };
 
     let max_index = unsafe { *interpreter.instruction_pointer } as isize;
@@ -131,12 +119,7 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 }
             };
         }
-        // StackValueData::Encrypted(value, key) => {
-        //     let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
-        //     if !decrypted.is_zero() {
-        //         jump_inner(interpreter, target);
-        //     }
-        // }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
 }
 
@@ -154,9 +137,7 @@ fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
                 return;
             }
         },
-        // StackValueData::Encrypted(value, key ) => {
-        //     ElGamalEncryption::decrypt_to_u256(&value, &key)
-        // }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     };
 
     let target = as_usize_or_fail!(interpreter, target, InstructionResult::InvalidJump);
@@ -264,10 +245,7 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
                 }
             }
         },
-        // StackValueData::Encrypted(value, key) => {
-        //     let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
-        //     as_usize_or_fail!(interpreter, decrypted)
-        // }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     };
 
     let mut output = Bytes::default();
@@ -289,10 +267,7 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
                     }
                 }
             },
-            // StackValueData::Encrypted(value, key) => {
-            //     let decrypted = ElGamalEncryption::decrypt_to_u256(&value, &key);
-            //     as_usize_or_fail!(interpreter, decrypted)
-            // }
+            StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
         };
 
         resize_memory!(interpreter, offset, len);
