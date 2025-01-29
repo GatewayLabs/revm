@@ -33,6 +33,7 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             convert_public_value_to_garbled(interpreter, public_val)
         },
         StackValueData::Private(gate_vec) => gate_vec,
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
     };
     
     let current_size = interpreter.private_memory.len();
@@ -53,7 +54,7 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     
     let garbled_value = match value {
         StackValueData::Public(public_val) => {
-            convert_public_value_to_garbled(interpreter, public_val)
+            convert_public_byte_to_garbled(interpreter, public_val)
         },
         StackValueData::Private(original_gates) => {
             let mut gate_indices = GateIndexVec::with_capacity(64);
@@ -68,7 +69,8 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             }
             
             gate_indices
-        }
+        },
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
     };
     
     
@@ -134,6 +136,24 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     interpreter.stack.push_stack_value_data(StackValueData::Private(src_value)).unwrap();
     
     // interpreter.private_memory.copy(dst, src, len);
+}
+
+fn convert_public_byte_to_garbled(interpreter: &mut Interpreter, public_value: Uint<256, 4>) -> GateIndexVec {
+    let byte = (public_value.as_limbs()[0] & 0xff) as u8;
+    let mut gate_indices = GateIndexVec::with_capacity(64);
+
+    for i in 0..8 {
+        let bit = (byte & (1 << i)) != 0;
+        let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
+        gate_indices.push(bit_gate[0]);
+    }
+
+    for _ in 8..64 {
+        let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
+        gate_indices.push(zero_gate[0]);
+    }
+
+    gate_indices
 }
 
 fn convert_public_value_to_garbled(interpreter: &mut Interpreter, public_value: Uint<256, 4>) -> GateIndexVec {
