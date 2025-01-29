@@ -1,5 +1,5 @@
 [package]
-name = "example-abi-contract-deployment"
+name = "deploy_counter_contract"
 version = "0.0.0"
 publish = false
 authors.workspace = true

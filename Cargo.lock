@@ -1569,6 +1569,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deploy_counter_contract"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "revm",
+ "revm-database",
+ "serde_json",
+]
+
+[[package]]
 name = "der"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1896,16 +1906,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tiny-keccak",
  "unicode-xid",
-]
-
-[[package]]
-name = "example-abi-contract-deployment"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "revm",
- "revm-database",
- "serde_json",
 ]
 
 [[package]]
