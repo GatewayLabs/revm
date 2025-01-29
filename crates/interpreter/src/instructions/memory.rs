@@ -1,6 +1,5 @@
 use crate::{gas, Host, Interpreter};
 use compute::{prelude::GateIndexVec, uint::GarbledBoolean};
-use primitives::ruint::Uint;
 use specification::hardfork::Spec;
 use crate::interpreter::StackValueData;
 use compute::uint::GarbledUint;
@@ -30,7 +29,24 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     
     let garbled_value = match value {
         StackValueData::Public(public_val) => {
-            convert_public_value_to_garbled(interpreter, public_val)
+            let mut bits = Vec::with_capacity(64);
+            let value_bytes: [u8; 32] = public_val.to_le_bytes();
+
+            for byte in value_bytes.iter().take(8) {
+                for i in 0..8 {
+                    let bit = (byte & (1 << i)) != 0;
+                    bits.push(bit);
+                }
+            }
+
+            let mut gate_vec = Vec::with_capacity(64);
+            for bit in bits {
+                let bit_value = GarbledUint::<1>::new(vec![bit]);
+                let gate = interpreter.circuit_builder.input(&bit_value);
+                gate_vec.push(gate[0]);
+            }
+
+            GateIndexVec::new(gate_vec)
         },
         StackValueData::Private(gate_vec) => gate_vec,
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
@@ -54,7 +70,22 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     
     let garbled_value = match value {
         StackValueData::Public(public_val) => {
-            convert_public_byte_to_garbled(interpreter, public_val)
+            let byte = (public_val.as_limbs()[0] & 0xff) as u8;
+
+            let mut gate_indices = GateIndexVec::with_capacity(64);
+
+            for i in 0..8 {
+                let bit = (byte & (1 << i)) != 0;
+                let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
+                gate_indices.push(bit_gate[0]);
+            }
+
+            for _ in 8..64 {
+                let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
+                gate_indices.push(zero_gate[0]);
+            }
+
+            gate_indices
         },
         StackValueData::Private(original_gates) => {
             let mut gate_indices = GateIndexVec::with_capacity(64);
@@ -136,45 +167,6 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     interpreter.stack.push_stack_value_data(StackValueData::Private(src_value)).unwrap();
     
     // interpreter.private_memory.copy(dst, src, len);
-}
-
-fn convert_public_byte_to_garbled(interpreter: &mut Interpreter, public_value: Uint<256, 4>) -> GateIndexVec {
-    let byte = (public_value.as_limbs()[0] & 0xff) as u8;
-    let mut gate_indices = GateIndexVec::with_capacity(64);
-
-    for i in 0..8 {
-        let bit = (byte & (1 << i)) != 0;
-        let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
-        gate_indices.push(bit_gate[0]);
-    }
-
-    for _ in 8..64 {
-        let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
-        gate_indices.push(zero_gate[0]);
-    }
-
-    gate_indices
-}
-
-fn convert_public_value_to_garbled(interpreter: &mut Interpreter, public_value: Uint<256, 4>) -> GateIndexVec {
-    let mut bits = Vec::with_capacity(64);
-    let value_bytes: [u8; 32] = public_value.to_le_bytes();
-
-    for byte in value_bytes.iter().take(8) {
-        for i in 0..8 {
-            let bit = (byte & (1 << i)) != 0;
-            bits.push(bit);
-        }
-    }
-
-    let mut gate_vec = Vec::with_capacity(64);
-    for bit in bits {
-        let bit_value = GarbledUint::<1>::new(vec![bit]);
-        let gate = interpreter.circuit_builder.input(&bit_value);
-        gate_vec.push(gate[0]);
-    }
-
-    GateIndexVec::new(gate_vec)
 }
 
 #[cfg(test)]
