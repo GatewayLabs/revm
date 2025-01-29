@@ -1,5 +1,6 @@
-use crate::{gas, Host, Interpreter};
+use crate::{gas, instructions::utility::convert_public_u256_to_512, Host, Interpreter};
 use compute::{prelude::GateIndexVec, uint::GarbledBoolean};
+use encryption::elgamal::ElGamalEncryption;
 use specification::hardfork::Spec;
 use crate::interpreter::StackValueData;
 use compute::uint::GarbledUint;
@@ -49,6 +50,10 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             GateIndexVec::new(gate_vec)
         },
         StackValueData::Private(gate_vec) => gate_vec,
+        StackValueData::Encrypted(encrypted_data, key) => {
+            let plain = ElGamalEncryption::decrypt_to_u256(&cipher, &key);
+            convert_public_u256_to_512(interpreter, plain)
+        }
     };
     
     let current_size = interpreter.private_memory.len();

@@ -113,6 +113,29 @@ pub fn garbled_int_to_ruint(value: &GarbledInt<256>) -> Uint<256, 4> {
     Uint::from_le_bytes(array)
 }
 
+/// Converte um U256 em 64 bytes, com metade zero ou algo similar, e gera 512 bits.
+pub fn convert_public_u256_to_512(
+    interpreter: &mut Interpreter,
+    public_value: Uint<256, 4>,
+) -> GateIndexVec {
+    // 1) Obtem 32 bytes
+    let value_bytes: [u8; 32] = public_value.to_le_bytes();
+    // 2) Monta 64 bytes => ex: prefixo zero + 32 bytes do valor
+    let mut buf = [0u8; 64];
+    buf[32..64].copy_from_slice(&value_bytes);
+
+    // 3) Converte em bits
+    let mut bits = Vec::with_capacity(512);
+    for byte in buf.iter() {
+        for i in 0..8 {
+            bits.push( (byte & (1 << i)) != 0 );
+        }
+    }
+    // 4) Insere no circuito
+    let garbled_512 = compute::uint::GarbledUint::<512>::new(bits);
+    interpreter.circuit_builder.input(&garbled_512)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
