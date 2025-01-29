@@ -1,7 +1,7 @@
 use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use core::{fmt, ptr};
-use encryption::elgamal::{Ciphertext, PrivateKey};
+// use encryption::elgamal::{Ciphertext, PrivateKey};
 use primitives::{FixedBytes, B256, U256};
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
@@ -16,7 +16,7 @@ pub const STACK_LIMIT: usize = 1024;
 pub enum StackValueData {
     Private(GateIndexVec),
     Public(U256),
-    Encrypted(Ciphertext, PrivateKey),
+    // Encrypted(Ciphertext, PrivateKey),
 }
 
 pub trait IntoStackValue {
@@ -34,12 +34,12 @@ impl Into<U256> for StackValueData {
         match self {
             StackValueData::Public(value) => value,
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
-            StackValueData::Encrypted(value, keypair) => {
-                let decrypted_value = value
-                    .decrypt_u32(&keypair.secret())
-                    .unwrap_or_else(|| panic!("Decryption failed"));
-                U256::from(decrypted_value)
-            }
+            // StackValueData::Encrypted(value, keypair) => {
+            //     let decrypted_value = value
+            //         .decrypt_u32(&keypair.secret())
+            //         .unwrap_or_else(|| panic!("Decryption failed"));
+            //     U256::from(decrypted_value)
+            // }
         }
     }
 }
@@ -49,9 +49,9 @@ impl Into<GateIndexVec> for StackValueData {
         match self {
             StackValueData::Public(_) => panic!("Cannot convert public value to GateIndexVec"),
             StackValueData::Private(value) => value,
-            StackValueData::Encrypted(_, _) => {
-                panic!("Cannot convert encrypted value to GateIndexVec")
-            }
+            // StackValueData::Encrypted(_, _) => {
+            //     panic!("Cannot convert encrypted value to GateIndexVec")
+            // }
         }
     }
 }
@@ -64,14 +64,14 @@ impl StackValueData {
                 let garbled_uint = ruint_to_garbled_uint(value);
                 circuit_builder.input(&garbled_uint)
             }
-            StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap();
-                let garbled_uint = ruint_to_garbled_uint(&value);
-                circuit_builder.input(&garbled_uint)
-            }
+            // StackValueData::Encrypted(ciphertext, keypair) => {
+            //     let value = ciphertext
+            //         .decrypt_u32(&keypair.secret())
+            //         .map(U256::from)
+            //         .unwrap();
+            //     let garbled_uint = ruint_to_garbled_uint(&value);
+            //     circuit_builder.input(&garbled_uint)
+            // }
         }
     }
 }
@@ -101,13 +101,13 @@ impl StackValueData {
         match self {
             StackValueData::Public(value) => *value,
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
-            StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap_or_else(|| panic!("Decryption failed"));
-                value
-            }
+            // StackValueData::Encrypted(ciphertext, keypair) => {
+            //     let value = ciphertext
+            //         .decrypt_u32(&keypair.secret())
+            //         .map(U256::from)
+            //         .unwrap_or_else(|| panic!("Decryption failed"));
+            //     value
+            // }
         }
     }
 }
@@ -117,14 +117,14 @@ impl StackValueData {
         match self {
             StackValueData::Public(value) => value.as_limbs(),
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
-            StackValueData::Encrypted(ciphertext, keypair) => {
-                let value = ciphertext
-                    .decrypt_u32(&keypair.secret())
-                    .map(U256::from)
-                    .unwrap_or_else(|| panic!("Decryption failed"));
-                let value = value.as_limbs().to_owned();
-                Box::leak(Box::new(value))
-            }
+            // StackValueData::Encrypted(ciphertext, keypair) => {
+            //     let value = ciphertext
+            //         .decrypt_u32(&keypair.secret())
+            //         .map(U256::from)
+            //         .unwrap_or_else(|| panic!("Decryption failed"));
+            //     let value = value.as_limbs().to_owned();
+            //     Box::leak(Box::new(value))
+            // }
         }
     }
 }
