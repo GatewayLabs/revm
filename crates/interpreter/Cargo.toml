@@ -29,6 +29,7 @@ specification.workspace = true
 wiring.workspace = true
 transaction.workspace = true
 compute.workspace = true
+bincode = "1.3"
 encryption.workspace = true
 
 # mics

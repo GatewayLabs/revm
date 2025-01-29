@@ -4089,6 +4089,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "curve25519-dalek 4.1.3",
+ "revm-primitives",
  "solana-zk-sdk",
 ]
 
