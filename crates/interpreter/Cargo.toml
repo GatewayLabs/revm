@@ -29,6 +29,8 @@ specification.workspace = true
 wiring.workspace = true
 transaction.workspace = true
 compute.workspace = true
+encryption = { workspace = true }
+bincode = "1.3"
 
 # mics
 derive-where = { version = "1.2.7", default-features = false }

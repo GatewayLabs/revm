@@ -1,13 +1,18 @@
 use crate::encryption_trait::Encryptor;
 use curve25519_dalek::scalar::Scalar;
 use solana_zk_sdk::encryption::elgamal::{ElGamalCiphertext, ElGamalKeypair, ElGamalPubkey};
+use primitives::U256;
 
 pub struct ElGamalEncryption;
 
+pub type PublicKey = ElGamalPubkey;
+pub type PrivateKey = ElGamalKeypair;
+pub type Ciphertext = ElGamalCiphertext;
+
 impl Encryptor for ElGamalEncryption {
-    type PublicKey = ElGamalPubkey;
-    type PrivateKey = ElGamalKeypair;
-    type Ciphertext = ElGamalCiphertext;
+    type PublicKey = PublicKey;
+    type PrivateKey = PrivateKey;
+    type Ciphertext = Ciphertext;
 
     /// Encrypt data using ElGamal public key with proper padding
     fn encrypt(data: &[u8], public_key: &Self::PublicKey) -> Self::Ciphertext {
@@ -29,5 +34,14 @@ impl Encryptor for ElGamalEncryption {
             Some(value) => Some(value.to_le_bytes().to_vec()), // Convert u32 back to bytes
             None => None,
         }
+    }
+
+    fn decrypt_to_u256(ciphertext: &Self::Ciphertext, private_key: &Self::PrivateKey) -> U256 {
+        let decrypted_bytes = Self::decrypt(ciphertext, private_key)
+            .expect("Failed to decrypt value");
+        let mut bytes32 = [0u8; 32];
+        let len = decrypted_bytes.len().min(32);
+        bytes32[32 - len..].copy_from_slice(&decrypted_bytes[..len]);
+        U256::from_be_bytes(bytes32)
     }
 }
