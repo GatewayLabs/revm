@@ -2,7 +2,7 @@ use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpret
 use core::ptr;
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
-use encryption::elgamal::{ElGamalEncryption, PrivateKey, Ciphertext};
+use encryption::{elgamal::{Ciphertext, ElGamalEncryption, PrivateKey}, Encryptor};
 
 pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, offset, len_ptr);
@@ -132,7 +132,7 @@ pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
     }
 
     let encrypted_data = &interpreter.contract.input[data_offset..end];
-    let private_key = interpreter.contract.private_key.as_ref().expect("Private key not set");
+    let private_key = interpreter.encryption_keypair.as_ref().expect("Private key not set");
 
     let mut decrypted_data = Vec::new();
     for chunk in encrypted_data.chunks(64) {
