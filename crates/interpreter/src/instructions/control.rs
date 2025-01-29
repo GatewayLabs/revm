@@ -272,7 +272,6 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
 
         resize_memory!(interpreter, offset, len);
 
-        // Acessar diretamente os gate indices da memória privada
         let mut output_data: Vec<u8> = Vec::with_capacity(len);
         for i in 0..len {
             let gate_indices = interpreter.private_memory.get(offset + i);
