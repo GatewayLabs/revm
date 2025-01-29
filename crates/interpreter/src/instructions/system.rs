@@ -2,6 +2,7 @@ use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpret
 use core::ptr;
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
+use encryption::elgamal::{ElGamalEncryption, PrivateKey, Ciphertext};
 
 pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, offset, len_ptr);
@@ -123,13 +124,25 @@ pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
     };
 
     let data_offset = as_usize_saturated!(data_offset);
-    // Note: this can't panic because we resized memory to fit.
-    interpreter.shared_memory.set_data(
-        memory_offset,
-        data_offset,
-        len,
-        &interpreter.contract.input,
-    );
+    let end = data_offset.saturating_add(len);
+
+    if end > interpreter.contract.input.len() {
+        interpreter.instruction_result = InstructionResult::OutOfOffset;
+        return;
+    }
+
+    let encrypted_data = &interpreter.contract.input[data_offset..end];
+    let private_key = interpreter.contract.private_key.as_ref().expect("Private key not set");
+
+    let mut decrypted_data = Vec::new();
+    for chunk in encrypted_data.chunks(64) {
+        let ciphertext: Ciphertext = bincode::deserialize(chunk).expect("Failed to deserialize ciphertext");
+        let decrypted_chunk = ElGamalEncryption::decrypt(&ciphertext, private_key)
+            .expect("Failed to decrypt data");
+        decrypted_data.extend_from_slice(&decrypted_chunk);
+    }
+
+    interpreter.shared_memory.set(memory_offset, &decrypted_data);
 }
 
 /// EIP-211: New opcodes: RETURNDATASIZE and RETURNDATACOPY
