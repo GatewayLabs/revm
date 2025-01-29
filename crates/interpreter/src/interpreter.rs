@@ -2,11 +2,12 @@ mod contract;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared_memory;
-mod private_memory;
+pub mod private_memory;
 mod stack;
 
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
+pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
 
@@ -16,10 +17,10 @@ use crate::{
 };
 use bytecode::{Bytecode, Eof};
 use core::cmp::min;
+use encryption::elgamal::PrivateKey;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::sync::Arc;
-pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -65,6 +66,7 @@ pub struct Interpreter {
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
     pub circuit_builder: WRK17CircuitBuilder,
+    pub encryption_keypair: Option<PrivateKey>,
 }
 
 impl Default for Interpreter {
@@ -99,6 +101,7 @@ impl Interpreter {
             next_action: InterpreterAction::None,
             circuit_builder: WRK17CircuitBuilder::default(),
             private_memory: EMPTY_PRIVATE_MEMORY,
+            encryption_keypair: None,
         }
     }
 

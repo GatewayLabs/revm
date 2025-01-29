@@ -70,6 +70,7 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             let eq_result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
     };
 
     *op1 = result;

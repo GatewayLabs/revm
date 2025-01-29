@@ -30,17 +30,26 @@ pub fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
     GarbledUint::<256>::new(bits)
 }
 
-pub fn garbled_uint_to_ruint(value: &GarbledUint<256>) -> Uint<256, 4> {
-    let bytes: Vec<u8> = value
-        .bits
-        .chunks(8)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .enumerate()
-                .fold(0, |byte, (i, &bit)| byte | ((bit as u8) << i))
-        })
-        .collect();
+pub fn garbled_uint_to_ruint<const BITS: usize>(garbled_uint: &GarbledUint<BITS>) -> Uint<BITS, 4> {
+    let mut bytes = vec![0u8; (BITS + 7) / 8];
+    let bits = &garbled_uint.bits;
+
+    for (byte_idx, chunk) in bits.chunks(8).enumerate() {
+        if byte_idx >= bytes.len() {
+            break;
+        }
+
+        let mut byte_value = 0u8;
+        for (bit_idx, &bit) in chunk.iter().enumerate() {
+            if bit_idx < 8 {
+                if bit {
+                    byte_value |= 1 << bit_idx;
+                }
+            }
+        }
+
+        bytes[byte_idx] = byte_value;
+    }
 
     let mut array = [0u8; 32];
     array.copy_from_slice(&bytes);

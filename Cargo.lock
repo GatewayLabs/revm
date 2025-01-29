@@ -4089,6 +4089,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "curve25519-dalek 4.1.3",
+ "revm-primitives",
  "solana-zk-sdk",
 ]
 
@@ -4113,6 +4114,7 @@ dependencies = [
  "derive-where",
  "revm-bytecode",
  "revm-database-interface",
+ "revm-encryption",
  "revm-primitives",
  "revm-specification",
  "revm-transaction",
