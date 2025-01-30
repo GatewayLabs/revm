@@ -1,30 +1,8 @@
 use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
 use core::ptr;
-use primitives::{hex, B256, KECCAK_EMPTY, U256};
+use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
-use serde::{Serialize, Deserialize};
-use std::fs;
-use std::collections::HashMap;
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair, Ciphertext};
-
-#[derive(Serialize, Deserialize)]
-struct KeypairStorage {
-    keypairs: HashMap<String, String>,
-}
-
-const KEYPAIR_FILE: &str = "keypairs.json";
-
-fn load_keypair(contract_address: &primitives::Address) -> Option<Keypair> {
-    match fs::read_to_string(KEYPAIR_FILE) {
-        Ok(content) => {
-            let storage: KeypairStorage = serde_json::from_str(&content).ok()?;
-            let keypair_str = storage.keypairs.get(&hex::encode(contract_address))?;
-            let keypair_bytes = base64::decode(keypair_str).ok()?;
-            bincode::deserialize(&keypair_bytes).ok()
-        }
-        Err(_) => None,
-    }
-}
 
 pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, offset, len_ptr);
@@ -153,11 +131,6 @@ pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
     pop_top!(interpreter, offset_ptr);
     let mut word = B256::ZERO;
     let offset = as_usize_saturated!(offset_ptr);
-
-    // Load keypair if needed
-    if interpreter.encryption_keypair.is_none() {
-        interpreter.encryption_keypair = load_keypair(&interpreter.contract.target_address);
-    }
 
     if offset < interpreter.contract.input.len() {
         let input = &interpreter.contract.input;

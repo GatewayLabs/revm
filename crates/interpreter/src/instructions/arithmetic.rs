@@ -19,6 +19,10 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(result);
+
+    // TODO: REMOVE THIS
+    let public = op2.to_public_value(&mut interpreter.circuit_builder);
+    println!("[ADD] 14 + 20 = {:?}", public);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

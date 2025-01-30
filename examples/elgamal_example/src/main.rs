@@ -184,7 +184,6 @@ fn main() -> anyhow::Result<()> {
                     println!("[DEBUG] Output size: {} bytes", data.len());
                     
                     if data.len() >= 32 {
-                        println!("data: {:?}", data);
                         let result_ciphertext: Ciphertext = bincode::deserialize(&data)
                             .expect("Failed to deserialize result");
                         
