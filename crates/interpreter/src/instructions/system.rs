@@ -139,6 +139,15 @@ fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize
     None
 }
 
+fn extract_value_from_b256(word: B256) -> u64 {
+    let bytes: [u8; 32] = word.as_slice().try_into().unwrap();
+    let mut result = bytes[23] as u64;
+    if bytes[24] != 0 {
+        result = (result << 8) | (bytes[24] as u64);
+    }
+    result
+}
+
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, offset_ptr);
@@ -158,7 +167,8 @@ pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
             if let Some(keypair) = &interpreter.encryption_keypair {
                 if let Some(decrypted_word) = decrypt_and_convert_value(input, keypair, value_index, value_offset) {
                     word = decrypted_word;
-                    *offset_ptr = word.into();
+                    let new_word = extract_value_from_b256(word);
+                    *offset_ptr = StackValueData::from(U256::from(new_word));
                     return;
                 }
             }
