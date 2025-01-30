@@ -42,16 +42,27 @@ fn main() -> anyhow::Result<()> {
     println!("Deployed contract address: {address}");
 
     // 2. Interact with contract - increment `number`
+    // let increment_selector = &hex::decode(
+    //     contract_data["methodIdentifiers"]["increment()"]
+    //         .as_str()
+    //         .unwrap(),
+    // )?;
     let increment_selector = &hex::decode(
-        contract_data["methodIdentifiers"]["increment()"]
+        contract_data["methodIdentifiers"]["ifIncrement(bool)"]
             .as_str()
             .unwrap(),
     )?;
+
+    // Encode the boolean parameter
+    let condition: bool = true; // or false, depending on your requirement
+    let mut data = increment_selector.to_vec();
+    data.push(if condition { 1 } else { 0 });
+
     evm = evm
         .modify()
         .modify_tx_env(|tx| {
             tx.transact_to = TxKind::Call(address);
-            tx.data = Bytes::from(increment_selector.to_vec());
+            tx.data = Bytes::from(data);
             tx.nonce += 1;
         })
         .build();
