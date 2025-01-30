@@ -2,7 +2,7 @@ use crate::{instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint
 use compute::{prelude::{GateIndexVec, WRK17CircuitBuilder}, uint::GarbledUint256};
 use core::{fmt, ptr};
 use encryption::{
-    elgamal::{Ciphertext, PrivateKey, ElGamalEncryption}, 
+    elgamal::{Ciphertext, Keypair, ElGamalEncryption}, 
     encryption_trait::Encryptor
 };
 use primitives::{FixedBytes, B256, U256};
@@ -53,7 +53,7 @@ impl Into<GateIndexVec> for StackValueData {
 }
 
 impl StackValueData {
-    pub fn to_encrypted(&self, key: &PrivateKey) -> Self {
+    pub fn to_encrypted(&self, key: &Keypair) -> Self {
         match self {
             StackValueData::Public(value) => {
                 let ciphertext = ElGamalEncryption::encrypt(&value.to_le_bytes::<32>(), key.pubkey());

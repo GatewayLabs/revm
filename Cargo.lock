@@ -841,6 +841,12 @@ checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
 name = "base64"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
+
+[[package]]
+name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -1751,6 +1757,7 @@ name = "elgamal-example"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64 0.13.1",
  "bincode",
  "compute",
  "revm",
@@ -1758,6 +1765,7 @@ dependencies = [
  "revm-encryption",
  "revm-interpreter",
  "revm-primitives",
+ "serde",
  "serde_json",
  "solana-zk-sdk",
 ]
@@ -4125,9 +4133,11 @@ dependencies = [
 name = "revm-interpreter"
 version = "10.0.1"
 dependencies = [
+ "base64 0.13.1",
  "bincode",
  "compute",
  "derive-where",
+ "hex",
  "revm-bytecode",
  "revm-database-interface",
  "revm-encryption",
@@ -4137,6 +4147,7 @@ dependencies = [
  "revm-wiring",
  "serde",
  "serde_json",
+ "solana-zk-sdk",
  "walkdir",
 ]
 

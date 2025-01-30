@@ -1,7 +1,30 @@
 use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
 use core::ptr;
-use primitives::{B256, KECCAK_EMPTY, U256};
+use primitives::{hex, B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
+use serde::{Serialize, Deserialize};
+use std::fs;
+use std::collections::HashMap;
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair, Ciphertext};
+
+#[derive(Serialize, Deserialize)]
+struct KeypairStorage {
+    keypairs: HashMap<String, String>,
+}
+
+const KEYPAIR_FILE: &str = "keypairs.json";
+
+fn load_keypair(contract_address: &primitives::Address) -> Option<Keypair> {
+    match fs::read_to_string(KEYPAIR_FILE) {
+        Ok(content) => {
+            let storage: KeypairStorage = serde_json::from_str(&content).ok()?;
+            let keypair_str = storage.keypairs.get(&hex::encode(contract_address))?;
+            let keypair_bytes = base64::decode(keypair_str).ok()?;
+            bincode::deserialize(&keypair_bytes).ok()
+        }
+        Err(_) => None,
+    }
+}
 
 pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, offset, len_ptr);
@@ -82,28 +105,79 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
     );
 }
 
+fn find_value_position(offset: usize) -> Option<(usize, usize)> {
+    if offset >= 68 && offset < 132 {
+        Some((1, offset - 68))
+    } else if offset >= 4 && offset < 68 {
+        Some((0, offset - 4))
+    } else {
+        None
+    }
+}
+
+fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize, value_offset: usize) -> Option<B256> {
+    let start_pos = 4 + (value_index * 64);
+    if start_pos + 64 <= input.len() {
+        if let Ok(ciphertext) = bincode::deserialize::<Ciphertext>(&input[start_pos..start_pos + 64]) {
+            if value_offset < 32 {
+                let decrypted = ElGamalEncryption::decrypt_to_u256(&ciphertext, keypair);
+                let decrypted_bytes = decrypted.to_be_bytes::<32>();
+                let mut word = B256::ZERO;
+                
+                let remaining = 32 - value_offset;
+                unsafe {
+                    ptr::copy_nonoverlapping(
+                        decrypted_bytes[value_offset..].as_ptr(),
+                        word.as_mut_ptr(),
+                        remaining,
+                    );
+                }
+                return Some(word);
+            }
+        }
+    }
+    None
+}
+
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, offset_ptr);
     let mut word = B256::ZERO;
     let offset = as_usize_saturated!(offset_ptr);
+
+    // Load keypair if needed
+    if interpreter.encryption_keypair.is_none() {
+        interpreter.encryption_keypair = load_keypair(&interpreter.contract.target_address);
+    }
+
     if offset < interpreter.contract.input.len() {
-        let count = 32.min(interpreter.contract.input.len() - offset);
-        // SAFETY: count is bounded by the calldata length.
-        // This is `word[..count].copy_from_slice(input[offset..offset + count])`, written using
-        // raw pointers as apparently the compiler cannot optimize the slice version, and using
-        // `get_unchecked` twice is uglier.
-        debug_assert!(count <= 32 && offset + count <= interpreter.contract.input.len());
+        let input = &interpreter.contract.input;
+
+        // Try to decrypt encrypted values
+        if let Some((value_index, value_offset)) = find_value_position(offset) {
+            if let Some(keypair) = &interpreter.encryption_keypair {
+                if let Some(decrypted_word) = decrypt_and_convert_value(input, keypair, value_index, value_offset) {
+                    word = decrypted_word;
+                    *offset_ptr = word.into();
+                    return;
+                }
+            }
+        }
+
+        // If decryption failed or not needed, copy raw bytes
+        let count = 32.min(input.len() - offset);
         unsafe {
             ptr::copy_nonoverlapping(
-                interpreter.contract.input.as_ptr().add(offset),
+                input.as_ptr().add(offset),
                 word.as_mut_ptr(),
                 count,
-            )
-        };
+            );
+        }
     }
+    
     *offset_ptr = word.into();
 }
+
 
 pub fn calldatasize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
@@ -132,7 +206,6 @@ pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
     );
 }
 
-/// EIP-211: New opcodes: RETURNDATASIZE and RETURNDATACOPY
 pub fn returndatasize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, BYZANTIUM);
     gas!(interpreter, gas::BASE);
@@ -142,7 +215,6 @@ pub fn returndatasize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
     );
 }
 
-/// EIP-211: New opcodes: RETURNDATASIZE and RETURNDATACOPY
 pub fn returndatacopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, BYZANTIUM);
     pop!(interpreter, memory_offset, offset, len);
@@ -171,7 +243,6 @@ pub fn returndatacopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
     );
 }
 
-/// Part of EOF `<https://eips.ethereum.org/EIPS/eip-7069>`.
 pub fn returndataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::VERYLOW);
@@ -198,13 +269,11 @@ pub fn gas<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     push!(interpreter, U256::from(interpreter.gas.remaining()));
 }
 
-// common logic for copying data from a source buffer to the EVM's memory
 pub fn memory_resize(
     interpreter: &mut Interpreter,
     memory_offset: StackValueData,
     len: usize,
 ) -> Option<usize> {
-    // safe to cast usize to u64
     gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64), None);
     if len == 0 {
         return None;

@@ -17,7 +17,7 @@ use crate::{
 };
 use bytecode::{Bytecode, Eof};
 use core::cmp::min;
-use encryption::elgamal::PrivateKey;
+use encryption::elgamal::Keypair;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::sync::Arc;
@@ -66,7 +66,7 @@ pub struct Interpreter {
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
     pub circuit_builder: WRK17CircuitBuilder,
-    pub encryption_keypair: Option<PrivateKey>,
+    pub encryption_keypair: Option<Keypair>,
 }
 
 impl Default for Interpreter {

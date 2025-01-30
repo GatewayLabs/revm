@@ -6,7 +6,7 @@ use crate::{
 use compute::prelude::WRK17CircuitBuilder;
 use primitives::Bytes;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use encryption::elgamal::PrivateKey;
+use encryption::elgamal::Keypair;
 
 #[derive(Serialize)]
 struct InterpreterSerde<'a> {
@@ -25,7 +25,7 @@ struct InterpreterSerde<'a> {
     is_static: bool,
     next_action: &'a InterpreterAction,
     circuit_builder: &'a WRK17CircuitBuilder,
-    encryption_keypair: &'a Option<PrivateKey>,
+    encryption_keypair: &'a Option<Keypair>,
 }
 
 #[derive(Deserialize)]
@@ -45,7 +45,7 @@ struct InterpreterDe {
     is_static: bool,
     next_action: InterpreterAction,
     circuit_builder: WRK17CircuitBuilder,
-    encryption_keypair: Option<PrivateKey>,
+    encryption_keypair: Option<Keypair>,
 }
 
 impl Serialize for Interpreter {
