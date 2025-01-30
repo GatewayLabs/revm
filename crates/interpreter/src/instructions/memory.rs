@@ -1,4 +1,4 @@
-use crate::{gas, instructions::utility, Host, Interpreter};
+use crate::{gas, Host, Interpreter};
 use compute::{prelude::GateIndexVec, uint::GarbledBoolean};
 use specification::hardfork::Spec;
 use crate::interpreter::StackValueData;

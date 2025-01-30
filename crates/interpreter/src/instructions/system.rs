@@ -1,6 +1,6 @@
 use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
 use core::ptr;
-use primitives::{B256, KECCAK_EMPTY, U256};
+use primitives::{hex, B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
 use encryption::{elgamal::{Ciphertext, ElGamalEncryption, PrivateKey}, Encryptor};
 
@@ -117,11 +117,15 @@ pub fn callvalue<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
 }
 
 pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
+    println!("calldatacopy called");
+
     pop!(interpreter, memory_offset, data_offset, len);
     let len = as_usize_or_fail!(interpreter, len);
     let Some(memory_offset) = memory_resize(interpreter, memory_offset, len) else {
         return;
     };
+
+    println!("Running calldatacopy");
 
     let data_offset = as_usize_saturated!(data_offset);
     let end = data_offset.saturating_add(len);
@@ -131,16 +135,23 @@ pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
         return;
     }
 
+    println!("Data offset: {}", data_offset);
+
     let encrypted_data = &interpreter.contract.input[data_offset..end];
     let private_key = interpreter.encryption_keypair.as_ref().expect("Private key not set");
+
+    println!("Encrypted data: 0x{}", hex::encode(encrypted_data));
 
     let mut decrypted_data = Vec::new();
     for chunk in encrypted_data.chunks(64) {
         let ciphertext: Ciphertext = bincode::deserialize(chunk).expect("Failed to deserialize ciphertext");
         let decrypted_chunk = ElGamalEncryption::decrypt(&ciphertext, private_key)
             .expect("Failed to decrypt data");
+        println!("Decrypted chunk: 0x{}", hex::encode(&decrypted_chunk));
         decrypted_data.extend_from_slice(&decrypted_chunk);
     }
+
+    println!("Decrypted data: 0x{}", hex::encode(&decrypted_data));
 
     interpreter.shared_memory.set(memory_offset, &decrypted_data);
 }
