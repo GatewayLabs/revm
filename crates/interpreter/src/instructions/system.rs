@@ -94,27 +94,39 @@ fn find_value_position(offset: usize) -> Option<(usize, usize)> {
 }
 
 fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize, value_offset: usize) -> Option<B256> {
-    let start_pos = 4 + (value_index * 64);
-    if start_pos + 64 <= input.len() {
-        if let Ok(ciphertext) = bincode::deserialize::<Ciphertext>(&input[start_pos..start_pos + 64]) {
-            if value_offset < 32 {
-                let decrypted = ElGamalEncryption::decrypt_to_u256(&ciphertext, keypair);
-                let decrypted_bytes = decrypted.to_be_bytes::<32>();
-                let mut word = B256::ZERO;
-                
-                let remaining = 32 - value_offset;
-                unsafe {
-                    ptr::copy_nonoverlapping(
-                        decrypted_bytes[value_offset..].as_ptr(),
-                        word.as_mut_ptr(),
-                        remaining,
-                    );
-                }
-                return Some(word);
-            }
-        }
+    // Early return if value_offset is out of bounds
+    if value_offset >= 32 {
+        return None;
     }
-    None
+
+    let start_pos = 4 + (value_index * 64);
+    if start_pos + 64 > input.len() {
+        return None;
+    }
+
+    // Try to deserialize and decrypt
+    let ciphertext = bincode::deserialize::<Ciphertext>(&input[start_pos..start_pos + 64]).ok()?;
+    let decrypted = ElGamalEncryption::decrypt(&ciphertext, keypair)
+        .map(|d| d)?;
+
+    // Convert to U256 and then to bytes
+    let mut bytes32 = [0u8; 32];
+    let len = decrypted.len().min(32);
+    bytes32[32 - len..].copy_from_slice(&decrypted[..len]);
+    let decrypted_bytes = U256::from_be_bytes(bytes32).to_be_bytes::<32>();
+
+    // Create final word with offset
+    let mut word = B256::ZERO;
+    let remaining = 32 - value_offset;
+    unsafe {
+        ptr::copy_nonoverlapping(
+            decrypted_bytes[value_offset..].as_ptr(),
+            word.as_mut_ptr(),
+            remaining,
+        );
+    }
+
+    Some(word)
 }
 
 fn extract_value_from_b256(word: B256) -> u64 {
