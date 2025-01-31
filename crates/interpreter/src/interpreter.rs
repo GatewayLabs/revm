@@ -6,6 +6,7 @@ pub mod private_memory;
 mod stack;
 
 use compute::prelude::WRK17CircuitBuilder;
+use ::serde::{Deserialize, Serialize};
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
@@ -17,10 +18,31 @@ use crate::{
 };
 use bytecode::{Bytecode, Eof};
 use core::cmp::min;
-use encryption::elgamal::PrivateKey;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::sync::Arc;
+use std::fs;
+use std::collections::HashMap;
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair};
+
+#[derive(Serialize, Deserialize)]
+struct KeypairStorage {
+    keypairs: HashMap<String, String>,
+}
+
+const KEYPAIR_FILE: &str = "keypairs.json";
+
+fn load_keypair(contract_address: &primitives::Address) -> Option<Keypair> {
+    match fs::read_to_string(KEYPAIR_FILE) {
+        Ok(content) => {
+            let storage: KeypairStorage = serde_json::from_str(&content).ok()?;
+            let keypair_str = storage.keypairs.get(&hex::encode(contract_address))?;
+            let keypair_bytes = base64::decode(keypair_str).ok()?;
+            bincode::deserialize(&keypair_bytes).ok()
+        }
+        Err(_) => None,
+    }
+}
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -66,7 +88,7 @@ pub struct Interpreter {
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
     pub circuit_builder: WRK17CircuitBuilder,
-    pub encryption_keypair: Option<PrivateKey>,
+    pub encryption_keypair: Option<Keypair>,
 }
 
 impl Default for Interpreter {
@@ -84,6 +106,8 @@ impl Interpreter {
         
         let is_eof = contract.bytecode.is_eof();
         let bytecode = contract.bytecode.bytecode().clone();
+        let target_address = contract.target_address.clone();
+        let encryption_keypair = load_keypair(&target_address);
 
         Self {
             instruction_pointer: bytecode.as_ptr(),
@@ -101,7 +125,7 @@ impl Interpreter {
             next_action: InterpreterAction::None,
             circuit_builder: WRK17CircuitBuilder::default(),
             private_memory: EMPTY_PRIVATE_MEMORY,
-            encryption_keypair: None,
+            encryption_keypair,
         }
     }
 
@@ -402,6 +426,11 @@ impl Interpreter {
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
+        }
+
+        if let Some(encryption_keypair) = &self.encryption_keypair {
+            let ciphertext = ElGamalEncryption::encrypt(&self.return_data_buffer, &encryption_keypair.pubkey());
+            self.return_data_buffer = Bytes::from(ciphertext.to_bytes().to_vec());
         }
 
         // Return next action if it is some.

@@ -33,6 +33,7 @@ members = [
     "examples/uniswap_get_reserves",
     "examples/uniswap_v2_usdc_swap",
     "examples/add_example",
+    "examples/elgamal_example",
     "examples/memory_example",
 ]
 

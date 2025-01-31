@@ -57,7 +57,7 @@ mod tests {
         // Attempt to decrypt with a different keypair
         let decrypted_data = ElGamalEncryption::decrypt(&encrypted_data, &keypair_2);
         assert!(
-            decrypted_data.is_none(),
+            decrypted_data.is_err(),
             "Decryption with different keypair should fail!"
         );
     }

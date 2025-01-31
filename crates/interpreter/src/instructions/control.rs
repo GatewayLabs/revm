@@ -1,10 +1,11 @@
 use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
-    gas, interpreter::StackValueData, Host, InstructionResult, Interpreter, InterpreterResult,
+    gas, interpreter::StackValueData, Host, InstructionResult, Interpreter, InterpreterResult
 };
-use compute::uint::GarbledUint;
+use compute::{prelude::GateIndexVec, uint::GarbledUint};
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
@@ -223,21 +224,28 @@ pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
     push!(interpreter, U256::from(interpreter.program_counter() - 1));
 }
-
 #[inline]
-fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
-    pop!(interpreter, offset, len);
-    
-    let len = match len {
-        StackValueData::Public(val) => as_usize_or_fail!(interpreter, val),
+fn process_stack_value(
+    interpreter: &mut Interpreter,
+    value: StackValueData,
+) -> usize {
+    match value {
+        StackValueData::Public(val) => {
+            if val > U256::from(usize::MAX) {
+                interpreter.instruction_result = InstructionResult::InvalidJump;
+                return 0;
+            }
+            val.as_limbs()[0] as usize
+        },
         StackValueData::Private(gate_indices) => {
-            match interpreter
-                .circuit_builder
-                .compile_and_execute::<256>(&gate_indices)
-            {
+            match interpreter.circuit_builder.compile_and_execute::<256>(&gate_indices) {
                 Ok(garbled_val) => {
                     let u256_val = garbled_uint_to_ruint(&garbled_val);
-                    as_usize_or_fail!(interpreter, u256_val)
+                    if u256_val > U256::from(usize::MAX) {
+                        interpreter.instruction_result = InstructionResult::InvalidJump;
+                        return 0;
+                    }
+                    u256_val.as_limbs()[0] as usize
                 },
                 Err(_) => {
                     interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
@@ -245,54 +253,54 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
                 }
             }
         },
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    };
-
-    let mut output = Bytes::default();
-    if len != 0 {
-        let offset = match offset {
-            StackValueData::Public(val) => as_usize_or_fail!(interpreter, val),
-            StackValueData::Private(gate_indices) => {
-                match interpreter
-                    .circuit_builder
-                    .compile_and_execute::<256>(&gate_indices)
-                {
-                    Ok(garbled_val) => {
-                        let u256_val = garbled_uint_to_ruint(&garbled_val);
-                        as_usize_or_fail!(interpreter, u256_val)
-                    },
-                    Err(_) => {
-                        interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
-                        0
-                    }
-                }
-            },
-            StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-        };
-
-        resize_memory!(interpreter, offset, len);
-
-        let mut output_data: Vec<u8> = Vec::with_capacity(len);
-        for i in 0..len {
-            let gate_indices = interpreter.private_memory.get(offset + i);
-            
-            match interpreter
-                .circuit_builder
-                .compile_and_execute::<256>(gate_indices)
-            {
-                Ok(garbled_val) => {
-                    let byte_val = garbled_uint_to_ruint(&garbled_val).as_limbs()[0] as u8;
-                    output_data.push(byte_val);
-                },
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
-                    output_data.push(0);
-                }
-            }
-        }
-
-        output = Bytes::from(output_data);
+        StackValueData::Encrypted(_ciphertext) => {
+            panic!("Cannot convert encrypted value to U256")
+        },
     }
+}
+
+#[inline]
+fn process_memory_value(
+    interpreter: &mut Interpreter,
+    gate_indices: &GateIndexVec,
+) -> Option<Bytes> {
+    let result = interpreter.circuit_builder.compile_and_execute::<256>(&gate_indices).ok()?;
+    let value = garbled_uint_to_ruint(&result);
+    let value_u64 = value.as_limbs()[0];
+    
+    if let Some(keypair) = &interpreter.encryption_keypair {
+        let value_u256 = U256::from(value_u64);
+        let value_bytes = value_u256.to_le_bytes::<32>();
+        let ciphertext = ElGamalEncryption::encrypt(&value_bytes, &keypair.pubkey());
+        
+        bincode::serialize(&ciphertext).ok().map(Bytes::from)
+    } else {
+        Some(Bytes::from(value.to_le_bytes::<32>().to_vec()))
+    }
+}
+
+#[inline]
+fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
+    pop!(interpreter, offset, len);
+    
+    let len = process_stack_value(interpreter, len);
+    if len == 0 {
+        interpreter.instruction_result = instruction_result;
+        interpreter.next_action = crate::InterpreterAction::Return {
+            result: InterpreterResult {
+                output: Bytes::default(),
+                gas: interpreter.gas,
+                result: instruction_result,
+            },
+        };
+        return;
+    }
+
+    let offset = process_stack_value(interpreter, offset);
+    resize_memory!(interpreter, offset, len);
+
+    let gate_indices = interpreter.private_memory.get(offset).clone();
+    let output = process_memory_value(interpreter, &gate_indices).unwrap_or_default();
 
     interpreter.instruction_result = instruction_result;
     interpreter.next_action = crate::InterpreterAction::Return {

@@ -11,14 +11,21 @@ use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    // pop_top!(interpreter, op1, op2);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
 
     // creates the sum circuit using the circuit builder
     let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
 
+    // TODO: REMOVE THIS
+    let v1 = op1.to_public_value(&mut interpreter.circuit_builder);
+    let v2 = op2.to_public_value(&mut interpreter.circuit_builder);
+
     // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(result);
+
+    // TODO: REMOVE THIS
+    let public = op2.to_public_value(&mut interpreter.circuit_builder);
+    println!("[ADD] {:?} + {:?} = {:?}", v1, v2, public);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
