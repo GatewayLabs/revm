@@ -11,7 +11,6 @@ use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    // pop_top!(interpreter, op1, op2);
     pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
 
     // creates the sum circuit using the circuit builder
