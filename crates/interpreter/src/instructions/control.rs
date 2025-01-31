@@ -228,7 +228,6 @@ pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 fn process_stack_value(
     interpreter: &mut Interpreter,
     value: StackValueData,
-    label: &str,
 ) -> usize {
     match value {
         StackValueData::Public(val) => {
@@ -248,8 +247,7 @@ fn process_stack_value(
                     }
                     u256_val.as_limbs()[0] as usize
                 },
-                Err(e) => {
-                    println!("[ERROR] {label} garbled error: {:?}", e);
+                Err(_) => {
                     interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
                     0
                 }
@@ -266,29 +264,18 @@ fn process_memory_value(
     interpreter: &mut Interpreter,
     gate_indices: &GateIndexVec,
 ) -> Option<Bytes> {
-    match interpreter.circuit_builder.compile_and_execute::<256>(&gate_indices) {
-        Ok(result) => {
-            let value = garbled_uint_to_ruint(&result);
-            let value_u64 = value.as_limbs()[0];
-            
-            if let Some(keypair) = &interpreter.encryption_keypair {
-                let value_u256 = U256::from(value_u64);
-                let value_bytes = value_u256.to_le_bytes::<32>();
-                let ciphertext = ElGamalEncryption::encrypt(&value_bytes, &keypair.pubkey());
-                
-                if let Ok(serialized) = bincode::serialize(&ciphertext) {
-                    Some(Bytes::from(serialized))
-                } else {
-                    None
-                }
-            } else {
-                Some(Bytes::from(value.to_le_bytes::<32>().to_vec()))
-            }
-        },
-        Err(_e) => {
-            interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
-            None
-        }
+    let result = interpreter.circuit_builder.compile_and_execute::<256>(&gate_indices).ok()?;
+    let value = garbled_uint_to_ruint(&result);
+    let value_u64 = value.as_limbs()[0];
+    
+    if let Some(keypair) = &interpreter.encryption_keypair {
+        let value_u256 = U256::from(value_u64);
+        let value_bytes = value_u256.to_le_bytes::<32>();
+        let ciphertext = ElGamalEncryption::encrypt(&value_bytes, &keypair.pubkey());
+        
+        bincode::serialize(&ciphertext).ok().map(Bytes::from)
+    } else {
+        Some(Bytes::from(value.to_le_bytes::<32>().to_vec()))
     }
 }
 
@@ -296,19 +283,24 @@ fn process_memory_value(
 fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
     pop!(interpreter, offset, len);
     
-    let len = process_stack_value(interpreter, len, "len");
-    let mut output = Bytes::default();
-
-    if len != 0 {
-        let offset = process_stack_value(interpreter, offset, "offset");
-        resize_memory!(interpreter, offset, len);
-
-        let gate_indices = interpreter.private_memory.get(offset).clone();
-        
-        if let Some(processed_output) = process_memory_value(interpreter, &gate_indices) {
-            output = processed_output;
-        }
+    let len = process_stack_value(interpreter, len);
+    if len == 0 {
+        interpreter.instruction_result = instruction_result;
+        interpreter.next_action = crate::InterpreterAction::Return {
+            result: InterpreterResult {
+                output: Bytes::default(),
+                gas: interpreter.gas,
+                result: instruction_result,
+            },
+        };
+        return;
     }
+
+    let offset = process_stack_value(interpreter, offset);
+    resize_memory!(interpreter, offset, len);
+
+    let gate_indices = interpreter.private_memory.get(offset).clone();
+    let output = process_memory_value(interpreter, &gate_indices).unwrap_or_default();
 
     interpreter.instruction_result = instruction_result;
     interpreter.next_action = crate::InterpreterAction::Return {
