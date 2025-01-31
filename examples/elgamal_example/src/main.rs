@@ -95,8 +95,8 @@ fn main() -> anyhow::Result<()> {
     let keypair = Keypair::new_rand();
     let public_key = keypair.pubkey();
 
-    let value1 = U256::from(14u64);
-    let value2 = U256::from(20u64);
+    let value1 = U256::from(234u64);
+    let value2 = U256::from(100u64);
 
     println!("[DEBUG] Input values: {} + {}", value1, value2);
 
