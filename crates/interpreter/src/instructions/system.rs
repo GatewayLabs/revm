@@ -1,5 +1,4 @@
 use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
-use core::ptr;
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair, Ciphertext};
@@ -94,7 +93,6 @@ fn find_value_position(offset: usize) -> Option<(usize, usize)> {
 }
 
 fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize, value_offset: usize) -> Option<B256> {
-    // Early return if value_offset is out of bounds
     if value_offset >= 32 {
         return None;
     }
@@ -104,33 +102,18 @@ fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize
         return None;
     }
 
-    // Try to deserialize and decrypt
     let ciphertext = bincode::deserialize::<Ciphertext>(&input[start_pos..start_pos + 64]).ok()?;
-    let decrypted = ElGamalEncryption::decrypt(&ciphertext, keypair)
-        .map(|d| d)?;
+    let decrypted = ElGamalEncryption::decrypt(&ciphertext, keypair).ok()?;
 
-    // Convert to U256 and then to bytes
-    let mut bytes32 = [0u8; 32];
-    let len = decrypted.len().min(32);
-    bytes32[32 - len..].copy_from_slice(&decrypted[..len]);
-    let decrypted_bytes = U256::from_be_bytes(bytes32).to_be_bytes::<32>();
-
-    // Create final word with offset
     let mut word = B256::ZERO;
-    let remaining = 32 - value_offset;
-    unsafe {
-        ptr::copy_nonoverlapping(
-            decrypted_bytes[value_offset..].as_ptr(),
-            word.as_mut_ptr(),
-            remaining,
-        );
-    }
+    let len = decrypted.len().min(32 - value_offset);
+    word[32 - len..].copy_from_slice(&decrypted[..len]);
 
     Some(word)
 }
 
 fn extract_value_from_b256(word: B256) -> u64 {
-    let bytes: [u8; 32] = word.as_slice().try_into().unwrap();
+    let bytes = word.as_slice();
     let mut result = bytes[23] as u64;
     if bytes[24] != 0 {
         result = (result << 8) | (bytes[24] as u64);
@@ -141,35 +124,30 @@ fn extract_value_from_b256(word: B256) -> u64 {
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, offset_ptr);
-    let mut word = B256::ZERO;
     let offset = as_usize_saturated!(offset_ptr);
 
-    if offset < interpreter.contract.input.len() {
+    let word = if offset < interpreter.contract.input.len() {
         let input = &interpreter.contract.input;
 
         // Try to decrypt encrypted values
         if let Some((value_index, value_offset)) = find_value_position(offset) {
             if let Some(keypair) = &interpreter.encryption_keypair {
                 if let Some(decrypted_word) = decrypt_and_convert_value(input, keypair, value_index, value_offset) {
-                    word = decrypted_word;
-                    let new_word = extract_value_from_b256(word);
-                    *offset_ptr = StackValueData::from(U256::from(new_word));
-                    return;
+                    let new_word = extract_value_from_b256(decrypted_word);
+                    return *offset_ptr = StackValueData::from(U256::from(new_word));
                 }
             }
         }
 
         // If decryption failed or not needed, copy raw bytes
+        let mut word = B256::ZERO;
         let count = 32.min(input.len() - offset);
-        unsafe {
-            ptr::copy_nonoverlapping(
-                input.as_ptr().add(offset),
-                word.as_mut_ptr(),
-                count,
-            );
-        }
-    }
-    
+        word[..count].copy_from_slice(&input[offset..offset + count]);
+        word
+    } else {
+        B256::ZERO
+    };
+
     *offset_ptr = word.into();
 }
 
