@@ -121,20 +121,14 @@ fn extract_value_from_b256(word: B256) -> u64 {
     result
 }
 
-pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, offset_ptr);
-    let offset = as_usize_saturated!(offset_ptr);
-
-    let word = if offset < interpreter.contract.input.len() {
-        let input = &interpreter.contract.input;
-
+pub fn extract_word(input: &[u8], keypair: Option<&Keypair>, offset: usize) -> (B256, Option<StackValueData>) {
+    if offset < input.len() {
         // Try to decrypt encrypted values
         if let Some((value_index, value_offset)) = find_value_position(offset) {
-            if let Some(keypair) = &interpreter.encryption_keypair {
+            if let Some(keypair) = keypair {
                 if let Some(decrypted_word) = decrypt_and_convert_value(input, keypair, value_index, value_offset) {
                     let new_word = extract_value_from_b256(decrypted_word);
-                    return *offset_ptr = StackValueData::from(U256::from(new_word));
+                    return (decrypted_word, Some(StackValueData::from(U256::from(new_word))));
                 }
             }
         }
@@ -143,14 +137,24 @@ pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
         let mut word = B256::ZERO;
         let count = 32.min(input.len() - offset);
         word[..count].copy_from_slice(&input[offset..offset + count]);
-        word
+        (word, None)
     } else {
-        B256::ZERO
-    };
-
-    *offset_ptr = word.into();
+        (B256::ZERO, None)
+    }
 }
 
+pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
+    gas!(interpreter, gas::VERYLOW);
+    pop_top!(interpreter, offset_ptr);
+    let offset = as_usize_saturated!(offset_ptr);
+
+    let (word, val) = extract_word(
+        &interpreter.contract.input,
+        interpreter.encryption_keypair.as_ref(),
+        offset
+    );
+    *offset_ptr = val.unwrap_or(word.into());
+}
 
 pub fn calldatasize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
