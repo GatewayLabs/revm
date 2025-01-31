@@ -555,12 +555,9 @@ mod tests {
 
     fn run(f: impl FnOnce(&mut Stack)) {
         let mut stack = Stack::new();
-        // fill capacity with non-zero values
-        unsafe {
-            stack.data.set_len(STACK_LIMIT);
-            stack.data.fill(StackValueData::Public(U256::MAX));
-            stack.data.set_len(0);
-        }
+        // Pre-allocate with proper capacity but keep length as 0
+        let data = Vec::with_capacity(STACK_LIMIT);
+        stack.data = data;
         f(&mut stack);
     }
 

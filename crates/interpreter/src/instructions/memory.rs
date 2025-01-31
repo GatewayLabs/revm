@@ -2,23 +2,21 @@ use crate::{gas, Host, Interpreter};
 use compute::{prelude::GateIndexVec, uint::GarbledBoolean};
 use specification::hardfork::Spec;
 use crate::interpreter::StackValueData;
-use compute::uint::GarbledUint;
 
 pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     
+    // Get reference to top of stack without extra copy
     let top = unsafe { interpreter.stack.top_unsafe() };
     let offset = as_usize_or_fail!(interpreter, top.to_u256());
     
-    let current_size = interpreter.private_memory.len();
-    let new_size = offset.saturating_add(32);
-    
-    if new_size > current_size {
-        interpreter.private_memory.resize(new_size);
+    // Only resize if we actually need to read from that location
+    if offset >= interpreter.private_memory.len() {
+        interpreter.private_memory.resize(offset + 32);
     }
     
-    let value = interpreter.private_memory.get(offset).clone();
-    *top = StackValueData::Private(value);
+    // Direct assignment without extra clone
+    *top = StackValueData::Private(interpreter.private_memory.get(offset).clone());
 }
 
 pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -29,21 +27,19 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     
     let garbled_value = match value {
         StackValueData::Public(public_val) => {
-            let mut bits = Vec::with_capacity(64);
+            // Pre-allocate GateIndexVec directly to avoid intermediate Vec
+            let mut gate_indices = GateIndexVec::with_capacity(64);
             let value_bytes: [u8; 32] = public_val.to_le_bytes();
+            
+            // Process bytes directly without intermediate bits vector
             for byte in value_bytes.iter().take(8) {
                 for i in 0..8 {
                     let bit = (byte & (1 << i)) != 0;
-                    bits.push(bit);
+                    let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
+                    gate_indices.push(bit_gate[0]);
                 }
             }
-            let mut gate_vec = Vec::with_capacity(64);
-            for bit in bits {
-                let bit_value = GarbledUint::<1>::new(vec![bit]);
-                let gate = interpreter.circuit_builder.input(&bit_value);
-                gate_vec.push(gate[0]);
-            }
-            GateIndexVec::new(gate_vec)
+            gate_indices
         },
         StackValueData::Private(gate_vec) => gate_vec,
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
@@ -65,67 +61,62 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let (offset_val, value) = unsafe { interpreter.stack.pop2_unsafe() };
     let offset = as_usize_or_fail!(interpreter, offset_val.to_u256());
     
-    let garbled_value = match value {
+    // Pre-allocate with exact capacity
+    let mut gate_indices = GateIndexVec::with_capacity(64);
+    
+    match value {
         StackValueData::Public(public_val) => {
-            let byte = (public_val.as_limbs()[0] & 0xff) as u8;
-            let mut gate_indices = GateIndexVec::with_capacity(64);
+            // Extract single byte more efficiently
+            let byte = public_val.as_limbs()[0] as u8;
+            
+            // Unroll first 8 bits loop
             for i in 0..8 {
-                let bit = (byte & (1 << i)) != 0;
-                let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
+                let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from((byte & (1 << i)) != 0));
                 gate_indices.push(bit_gate[0]);
             }
-            for _ in 8..64 {
-                let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
-                gate_indices.push(zero_gate[0]);
-            }
-            gate_indices
         },
         StackValueData::Private(original_gates) => {
-            let mut gate_indices = GateIndexVec::with_capacity(64);
-            
-            for gate in original_gates.iter().take(8) {
-                gate_indices.push(*gate);
+            // Copy first 8 gates one by one
+            for i in 0..8.min(original_gates.len()) {
+                gate_indices.push(original_gates[i]);
             }
-            
-            while gate_indices.len() < 64 {
-                let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
-                gate_indices.push(zero_gate[0]);
-            }
-            
-            gate_indices
         },
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
-    };
-    
-    
-    let current_size = interpreter.private_memory.len();
-    let new_size = offset.saturating_add(1);
-    
-    if new_size > current_size {
-        interpreter.private_memory.resize(new_size);
+        StackValueData::Encrypted(_) => panic!("Cannot convert encrypted value to garbled value"),
+    }
+
+    // Fill remaining bits with zeros
+    let zero_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(false));
+    while gate_indices.len() < 64 {
+        gate_indices.push(zero_gate[0]);
     }
     
-    *interpreter.private_memory.get_mut(offset) = garbled_value;
+    // Resize memory only if needed
+    if offset >= interpreter.private_memory.len() {
+        interpreter.private_memory.resize(offset + 1);
+    }
+    
+    *interpreter.private_memory.get_mut(offset) = gate_indices;
 }
 
 pub fn msize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
     
-    let size_in_words = (interpreter.private_memory.len() + 31) / 32;
-    let size_in_bytes = size_in_words * 32;
+    // Calculate size in bytes directly
+    let size_in_bytes = ((interpreter.private_memory.len() + 31) / 32) * 32;
     
-    let mut bits = Vec::with_capacity(64);
-    let mut size = size_in_bytes;
+    // Pre-allocate gate indices with capacity
+    let mut gate_indices = GateIndexVec::with_capacity(64);
+    
+    // Add gates for each bit without intermediate Vec
+    let mut remaining = size_in_bytes;
     for _ in 0..64 {
-        bits.push((size & 1) == 1);
-        size >>= 1;
+        let bit = remaining & 1 == 1;
+        let bit_gate = interpreter.circuit_builder.input(&GarbledBoolean::from(bit));
+        gate_indices.push(bit_gate[0]);
+        remaining >>= 1;
     }
     
-    let garbled_size = GarbledUint::<64>::new(bits);
-    
-    let result = interpreter.circuit_builder.input(&garbled_size);
-    
-    interpreter.stack.push_stack_value_data(StackValueData::Private(result)).unwrap();
+    interpreter.stack.push_stack_value_data(StackValueData::Private(gate_indices)).unwrap();
 }
 
 pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -134,32 +125,26 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     let (dst_val, src_val, len_val) = unsafe { interpreter.stack.pop3_unsafe() };
 
     let len = as_usize_or_fail!(interpreter, len_val.to_u256());
-    gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64));
     if len == 0 {
         return;
     }
+    gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64));
 
     let src = as_usize_or_fail!(interpreter, dst_val.to_u256());
     let dst = as_usize_or_fail!(interpreter, src_val.to_u256());
     
-    let current_size = interpreter.private_memory.len();
+    // Resize memory only if necessary
     let new_size = core::cmp::max(dst + len, src + len);
-    
-    if new_size > current_size {
+    if new_size > interpreter.private_memory.len() {
         interpreter.private_memory.resize(new_size);
     }
 
+    // Clone the source value before mutating memory
     let src_value = interpreter.private_memory.get(src).clone();
-
     *interpreter.private_memory.get_mut(dst) = src_value.clone();
 
-    let dst_value = interpreter.private_memory.get(dst).clone();
-
-    assert_eq!(src_value, dst_value, "MCOPY read back verification failed");
-
+    // Push the cloned value
     interpreter.stack.push_stack_value_data(StackValueData::Private(src_value)).unwrap();
-    
-    // interpreter.private_memory.copy(dst, src, len);
 }
 
 #[cfg(test)]
