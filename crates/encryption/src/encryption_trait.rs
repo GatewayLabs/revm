@@ -8,5 +8,5 @@ pub trait Encryptor {
     fn encrypt(data: &[u8], public_key: &Self::PublicKey) -> Self::Ciphertext;
 
     /// Decrypt a ciphertext and return the original data
-    fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::Keypair) -> Option<Vec<u8>>;
+    fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::Keypair) -> Result<Vec<u8>, String>;
 }

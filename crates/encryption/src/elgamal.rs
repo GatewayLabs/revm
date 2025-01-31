@@ -27,11 +27,11 @@ impl Encryptor for ElGamalEncryption {
     }
 
     /// Decrypt data using the ElGamal ciphertext's own method
-    fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::Keypair) -> Option<Vec<u8>> {
+    fn decrypt(ciphertext: &Self::Ciphertext, private_key: &Self::Keypair) -> Result<Vec<u8>, String> {
         // Attempt to decrypt directly using the ciphertext's decryption method
         match ciphertext.decrypt_u32(&private_key.secret()) {
-            Some(value) => Some(value.to_le_bytes().to_vec()), // Convert u32 back to bytes
-            None => None,
+            Some(value) => Ok(value.to_le_bytes().to_vec()), // Convert u32 back to bytes
+            None => Err("Decryption failed".to_string()),
         }
     }
 }
