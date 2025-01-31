@@ -4054,6 +4054,7 @@ dependencies = [
  "revm-wiring",
  "rstest",
  "serde",
+ "solana-zk-sdk",
 ]
 
 [[package]]
@@ -4255,11 +4256,13 @@ dependencies = [
  "kzg-rs",
  "once_cell",
  "revm-database-interface",
+ "revm-encryption",
  "revm-primitives",
  "revm-specification",
  "revm-state",
  "revm-transaction",
  "serde",
+ "solana-zk-sdk",
 ]
 
 [[package]]

@@ -1,6 +1,8 @@
 pub mod block;
 pub mod tx;
 
+use encryption::Keypair;
+
 use transaction::{Eip4844Tx, TransactionType};
 pub use tx::TxEnv;
 
@@ -92,6 +94,9 @@ pub struct CfgEnv {
     #[cfg(any(feature = "c-kzg", feature = "kzg-rs"))]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub kzg_settings: crate::kzg::EnvKzgSettings,
+
+    pub encryption_keypair: Option<Keypair>,
+
     /// Bytecode that is created with CREATE/CREATE2 is by default analysed and jumptable is created.
     /// This is very beneficial for testing and speeds up execution of that bytecode if called multiple times.
     ///
@@ -208,6 +213,7 @@ impl Default for CfgEnv {
             perf_analyse_created_bytecodes: AnalysisKind::default(),
             limit_contract_code_size: None,
             disable_nonce_check: false,
+            encryption_keypair: None,
             #[cfg(any(feature = "c-kzg", feature = "kzg-rs"))]
             kzg_settings: crate::kzg::EnvKzgSettings::Default,
             #[cfg(feature = "memory_limit")]

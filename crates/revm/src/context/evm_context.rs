@@ -245,11 +245,18 @@ where
 
             let contract =
                 Contract::new_with_context(inputs.input.clone(), bytecode, Some(code_hash), inputs);
+
             // Create interpreter and executes call and push new CallStackFrame.
+            let mut interpreter = Interpreter::new(contract, gas.limit(), inputs.is_static);
+
+            if let Some(keypair) = &self.cfg().encryption_keypair {
+                interpreter.set_encryption_keypair(keypair.clone());
+            }
+
             Ok(FrameOrResult::new_call_frame(
                 inputs.return_memory_offset.clone(),
                 checkpoint,
-                Interpreter::new(contract, gas.limit(), inputs.is_static),
+                interpreter,
             ))
         }
     }
@@ -341,10 +348,16 @@ where
             inputs.value,
         );
 
+        let mut interpreter = Interpreter::new(contract, inputs.gas_limit, false);
+
+        if let Some(keypair) = &self.cfg().encryption_keypair {
+            interpreter.set_encryption_keypair(keypair.clone());
+        }
+
         Ok(FrameOrResult::new_create_frame(
             created_address,
             checkpoint,
-            Interpreter::new(contract, inputs.gas_limit, false),
+            interpreter,
         ))
     }
 
@@ -449,6 +462,11 @@ where
         );
 
         let mut interpreter = Interpreter::new(contract, inputs.gas_limit, false);
+
+        if let Some(keypair) = &self.cfg().encryption_keypair {
+            interpreter.set_encryption_keypair(keypair.clone());
+        }
+
         // EOF init will enable RETURNCONTRACT opcode.
         interpreter.set_is_eof_init();
 
