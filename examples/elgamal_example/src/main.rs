@@ -1,7 +1,6 @@
 use database::InMemoryDB;
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
-use solana_zk_sdk::encryption::elgamal::{ElGamalKeypair, ElGamalCiphertext as Ciphertext};
-use bincode;
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair, Ciphertext};
+use bincode::{self, Options};
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::collections::HashMap;
@@ -50,8 +49,6 @@ const RUNTIME_CODE: &[u8] = &[
     0xf3              // RETURN
 ];
 
-
-// Function to load keypair storage from file
 fn load_keypair_storage() -> anyhow::Result<KeypairStorage> {
     match fs::read_to_string(KEYPAIR_FILE) {
         Ok(content) => {
@@ -64,35 +61,30 @@ fn load_keypair_storage() -> anyhow::Result<KeypairStorage> {
     }
 }
 
-// Function to save keypair storage to file
 fn save_keypair_storage(storage: &KeypairStorage) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(storage)?;
     fs::write(KEYPAIR_FILE, json)?;
     Ok(())
 }
 
-// Function to store keypair for a contract address
-fn store_keypair(contract_address: &Address, keypair: &ElGamalKeypair) -> anyhow::Result<()> {
+fn store_keypair(contract_address: &Address, keypair: &Keypair) -> anyhow::Result<()> {
     let mut storage = load_keypair_storage()?;
     
-    // Serialize keypair to base64 string
     let keypair_bytes = bincode::serialize(keypair)?;
     let keypair_str = base64::encode(&keypair_bytes);
     
-    // Store with contract address as key
     storage.keypairs.insert(hex::encode(contract_address), keypair_str);
     
     save_keypair_storage(&storage)?;
     Ok(())
 }
 
-// Function to load keypair for a contract address
-fn load_keypair(contract_address: &Address) -> anyhow::Result<Option<ElGamalKeypair>> {
+fn load_keypair(contract_address: &Address) -> anyhow::Result<Option<Keypair>> {
     let storage = load_keypair_storage()?;
     
     if let Some(keypair_str) = storage.keypairs.get(&hex::encode(contract_address)) {
         let keypair_bytes = base64::decode(keypair_str)?;
-        let keypair: ElGamalKeypair = bincode::deserialize(&keypair_bytes)?;
+        let keypair: Keypair = bincode::deserialize(&keypair_bytes)?;
         Ok(Some(keypair))
     } else {
         Ok(None)
@@ -100,7 +92,7 @@ fn load_keypair(contract_address: &Address) -> anyhow::Result<Option<ElGamalKeyp
 }
 
 fn main() -> anyhow::Result<()> {
-    let keypair = ElGamalKeypair::new_rand();
+    let keypair = Keypair::new_rand();
     let public_key = keypair.pubkey();
 
     let value1 = U256::from(14u64);
@@ -112,19 +104,40 @@ fn main() -> anyhow::Result<()> {
     let encrypted_value2 = ElGamalEncryption::encrypt(&value2.to_le_bytes::<32>(), &public_key);
 
     let mut calldata = Vec::new();
-    calldata.extend_from_slice(&[0; 4]);
-    bincode::serialize_into(&mut calldata, &encrypted_value1).expect("Failed to serialize value1");
-    bincode::serialize_into(&mut calldata, &encrypted_value2).expect("Failed to serialize value2");
+    calldata.extend_from_slice(&[0; 4]); // Function selector
 
+    // Serializa o primeiro ciphertext em duas partes de 32 bytes
+    let ser_config = bincode::DefaultOptions::new()
+        .with_big_endian()
+        .with_fixint_encoding();
+
+    // Serializando o primeiro ciphertext diretamente
+    let serialized_value1 = ser_config
+        .serialize(&encrypted_value1)
+        .expect("Failed to serialize first ciphertext");
+    
+    // Serializando o segundo ciphertext diretamente
+    let serialized_value2 = ser_config
+        .serialize(&encrypted_value2)
+        .expect("Failed to serialize second ciphertext");
+
+    calldata.extend_from_slice(&serialized_value1);
+    calldata.extend_from_slice(&serialized_value2);
+    
     println!("[DEBUG] Calldata size: {} bytes", calldata.len());
 
     let calldata = Bytes::from(calldata);
     let bytecode = Bytecode::new_raw(Bytes::from(RUNTIME_CODE));
 
+    println!("[DEBUG] Calldata hex: {}", 
+    calldata.iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
+    );
+
     let sender = Address::from_slice(&[0x20; 20]);
     let contract_address = Address::from_slice(&[0x42; 20]);
     
-    // Store the keypair for this contract
     store_keypair(&contract_address, &keypair)?;
     println!("[DEBUG] Stored keypair for contract: {:?}", contract_address);
 
@@ -181,17 +194,29 @@ fn main() -> anyhow::Result<()> {
             
             match output {
                 Output::Call(data) => {
-                    println!("[DEBUG] Output size: {} bytes", data.len());
-                    
-                    if data.len() >= 32 {
-                        let result_ciphertext: Ciphertext = bincode::deserialize(&data)
-                            .expect("Failed to deserialize result");
-                        
-                        // Load the keypair for decryption
+                    if data.len() >= 64 {
+                        let des_config = bincode::DefaultOptions::new()
+                            .with_fixint_encoding()
+                            .with_big_endian()
+                            .with_no_limit();
+
+                        let result_ciphertext: Ciphertext = des_config.deserialize(&data)
+                            .map_err(|e| {
+                                println!("[ERROR] Deserialization error details: {:?}", e);
+                                e
+                            })?;
+
                         let keypair = load_keypair(&contract_address)?
                             .expect("Failed to load keypair for contract");
-                            
-                        let result = ElGamalEncryption::decrypt_to_u256(&result_ciphertext, &keypair);
+
+                        let decrypted_bytes = ElGamalEncryption::decrypt(&result_ciphertext, &keypair)
+                            .expect("Failed to decrypt bytes");
+
+                        let mut bytes32 = [0u8; 32];
+                        let len = decrypted_bytes.len().min(32);
+                        bytes32[..len].copy_from_slice(&decrypted_bytes[..len]);
+                        let result = U256::from_le_bytes(bytes32);
+                        
                         println!("[DEBUG] Result: {}", result);
                         
                         let expected = value1 + value2;
@@ -209,7 +234,7 @@ fn main() -> anyhow::Result<()> {
         ExecutionResult::Revert { gas_used, output } => {
             println!("[ERROR] Execution reverted");
             println!("[DEBUG] Gas used: {}", gas_used);
-            println!("[DEBUG] Revert data: {:?}", output);
+            println!("[DEBUG] Revert data: {:02x?}", output);
             return Err(anyhow::anyhow!("EVM execution reverted"));
         },
         ExecutionResult::Halt { reason, gas_used } => {
