@@ -34,6 +34,9 @@ bytecode.workspace = true
 database = { workspace = true, optional = true }
 transaction.workspace = true
 
+# encryption
+solana-zk-sdk = { version = "2.1.8", optional = true }
+
 # misc
 derive-where = { version = "1.2.7", default-features = false }
 dyn-clone = "1.0"

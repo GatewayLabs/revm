@@ -1,12 +1,11 @@
 mod contract;
+pub mod private_memory;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared_memory;
-pub mod private_memory;
 mod stack;
 
 use compute::prelude::WRK17CircuitBuilder;
-use ::serde::{Deserialize, Serialize};
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
@@ -18,31 +17,10 @@ use crate::{
 };
 use bytecode::{Bytecode, Eof};
 use core::cmp::min;
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair};
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::sync::Arc;
-use std::fs;
-use std::collections::HashMap;
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair};
-
-#[derive(Serialize, Deserialize)]
-struct KeypairStorage {
-    keypairs: HashMap<String, String>,
-}
-
-const KEYPAIR_FILE: &str = "keypairs.json";
-
-fn load_keypair(contract_address: &primitives::Address) -> Option<Keypair> {
-    match fs::read_to_string(KEYPAIR_FILE) {
-        Ok(content) => {
-            let storage: KeypairStorage = serde_json::from_str(&content).ok()?;
-            let keypair_str = storage.keypairs.get(&hex::encode(contract_address))?;
-            let keypair_bytes = base64::decode(keypair_str).ok()?;
-            bincode::deserialize(&keypair_bytes).ok()
-        }
-        Err(_) => None,
-    }
-}
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -103,11 +81,9 @@ impl Interpreter {
         if !contract.bytecode.is_execution_ready() {
             panic!("Contract is not execution ready {:?}", contract.bytecode);
         }
-        
+
         let is_eof = contract.bytecode.is_eof();
         let bytecode = contract.bytecode.bytecode().clone();
-        let target_address = contract.target_address.clone();
-        let encryption_keypair = load_keypair(&target_address);
 
         Self {
             instruction_pointer: bytecode.as_ptr(),
@@ -125,13 +101,18 @@ impl Interpreter {
             next_action: InterpreterAction::None,
             circuit_builder: WRK17CircuitBuilder::default(),
             private_memory: EMPTY_PRIVATE_MEMORY,
-            encryption_keypair,
+            encryption_keypair: None,
         }
     }
 
-    #[cfg(test)]
+    #[inline]
     pub fn reset_circuit_builder(&mut self) {
         self.circuit_builder = WRK17CircuitBuilder::default();
+    }
+
+    #[inline]
+    pub fn set_encryption_keypair(&mut self, keypair: Keypair) {
+        self.encryption_keypair = Some(keypair);
     }
 
     /// Set is_eof_init to true, this is used to enable `RETURNCONTRACT` opcode.
@@ -429,7 +410,8 @@ impl Interpreter {
         }
 
         if let Some(encryption_keypair) = &self.encryption_keypair {
-            let ciphertext = ElGamalEncryption::encrypt(&self.return_data_buffer, &encryption_keypair.pubkey());
+            let ciphertext =
+                ElGamalEncryption::encrypt(&self.return_data_buffer, &encryption_keypair.pubkey());
             self.return_data_buffer = Bytes::from(ciphertext.to_bytes().to_vec());
         }
 
