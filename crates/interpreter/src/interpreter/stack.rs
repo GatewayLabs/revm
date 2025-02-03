@@ -22,24 +22,6 @@ pub enum StackValueData {
     Encrypted(Ciphertext),
 }
 
-/// A generic trait for converting values into StackValueData.
-/// It leverages the existing `From` implementations, so you can still do
-/// `U256`, `GateIndexVec`, or `Ciphertext` → `StackValueData` without duplicating code.
-#[allow(dead_code)]
-pub(crate) trait IntoStackValue {
-    fn into_stack_value(self) -> StackValueData;
-}
-
-impl<T> IntoStackValue for T
-where
-    T: Into<StackValueData>,
-{
-    #[inline]
-    fn into_stack_value(self) -> StackValueData {
-        self.into()
-    }
-}
-
 impl Into<U256> for StackValueData {
     fn into(self) -> U256 {
         match self {
