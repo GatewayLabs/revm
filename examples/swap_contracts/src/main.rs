@@ -1,11 +1,12 @@
 //use revm::providers::Provider;
 //use revm::rpc::types::eth::{BlockId, BlockNumberOrTag};
-use alloy_eips::{BlockId, BlockNumberOrTag};
-use alloy_provider::{network::primitives::BlockTransactions, Provider, ProviderBuilder};
+use alloy::rpc::types::eth::{BlockId, BlockNumberOrTag};
+//use alloy::alloy_eips::{BlockId, BlockNumberOrTag};
+//use alloy_provider::{network::primitives::BlockTransactions, Provider, ProviderBuilder};
 use alloy::primitives::{Address, U256};
 use std::str::FromStr;
 use alloy::primitives::utils::parse_ether;
-
+use alloy::providers::Provider;
 use swap_contracts::{ forked_db::fork_factory::ForkFactory, *, utils::* };
 
 use revm::{db::{CacheDB, EmptyDB}, primitives::TransactTo};
@@ -28,7 +29,7 @@ async fn main() -> Result<(), anyhow::Error> {
         Some(block_id)
     );
 
-    let one_eth = parse_ether("1");
+    let one_eth = parse_ether("1")?;
     let dummy_contract = DummyAccount::new(AccountType::Contract(swap_router_bytecode()), U256::ZERO, U256::ZERO);
     let dummy_account = DummyAccount::new(AccountType::EOA, one_eth, one_eth);
 
@@ -38,12 +39,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let fork_db = fork_factory.new_sandbox_fork();
 
     let mut evm = new_evm(fork_db, block.unwrap());
-    let weth = ERC20Token::new(*WETH, client.clone());
-    let usdc = ERC20Token::new(*USDC, client.clone());
+    let weth = ERC20Token::new(*WETH, client.clone()).await?;
+    let usdc = ERC20Token::new(*USDC, client.clone()).await?;
 
 
     let pool = Pool {
-        address: Address::from_str("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"),
+        address: Address::from_str("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640").expect("REASON"),
         token0: weth.address,
         token1: usdc.address,
         variant: PoolVariant::UniswapV3
