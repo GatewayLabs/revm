@@ -22,16 +22,6 @@ pub enum StackValueData {
     Encrypted(Ciphertext),
 }
 
-pub trait IntoStackValue {
-    fn into_stack_value(self) -> StackValueData;
-}
-
-impl IntoStackValue for U256 {
-    fn into_stack_value(self) -> StackValueData {
-        StackValueData::Public(self)
-    }
-}
-
 impl Into<U256> for StackValueData {
     fn into(self) -> U256 {
         match self {
