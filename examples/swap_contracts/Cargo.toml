@@ -36,6 +36,8 @@ alloy = { version = "0.3", features = ["full"] }
 # alloy
 alloy-eips = "0.4.2"
 alloy-provider = "0.4.2"
+interpreter = { workspace = true }
+compute = { workspace = true }
 
 # mics
 anyhow = "1.0.89"
