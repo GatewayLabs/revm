@@ -353,6 +353,7 @@ impl Interpreter {
     {
         // Get current opcode.
         let opcode = unsafe { *self.instruction_pointer };
+        println!("#️⃣ {:?}:{:?}", OpCode::name_by_op(opcode), opcode);
 
         // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
         // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction

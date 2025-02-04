@@ -31,6 +31,8 @@ members = [
     "examples/uniswap_get_reserves",
     "examples/uniswap_v2_usdc_swap",
     #"examples/custom_opcodes",
+    "examples/abi_contract_deployment"
+
 ]
 
 [workspace.dependencies]
