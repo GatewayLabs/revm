@@ -5,6 +5,7 @@ pub mod serde;
 mod shared_memory;
 mod stack;
 
+use bytecode::opcode::OpCode;
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
@@ -375,6 +376,7 @@ impl Interpreter {
     {
         // Get current opcode.
         let opcode = unsafe { *self.instruction_pointer };
+        println!("#️⃣ {:?}:{:?}", OpCode::name_by_op(opcode), opcode);
 
         // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
         // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction
@@ -407,12 +409,6 @@ impl Interpreter {
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
-        }
-
-        if let Some(encryption_keypair) = &self.encryption_keypair {
-            let ciphertext =
-                ElGamalEncryption::encrypt(&self.return_data_buffer, &encryption_keypair.pubkey());
-            self.return_data_buffer = Bytes::from(ciphertext.to_bytes().to_vec());
         }
 
         // Return next action if it is some.
