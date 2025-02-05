@@ -4,6 +4,7 @@ pub mod serde;
 mod shared_memory;
 mod stack;
 
+use bytecode::opcode::OpCode;
 pub use contract::Contract;
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, STACK_LIMIT};
