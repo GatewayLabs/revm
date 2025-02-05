@@ -266,66 +266,72 @@ fn process_memory_value(
 ) -> Option<Bytes> {
     let result = interpreter
         .circuit_builder
-        .compile_and_execute::<256>(&gate_indices)
+        .compile_and_execute::<256>(gate_indices)
         .ok()?;
+
     let value = garbled_uint_to_ruint(&result);
+    println!("process_memory_value - computed value: {:?}", value);
 
-    let value_to_le = value.to_le_bytes::<32>();
-    let value_to_vec = value_to_le.to_vec();
-    let value_to_bytes = Bytes::from(value_to_vec);
-
-    Some(value_to_bytes)
+    // Se o valor não é zero, converte para bytes
+    if !value.is_zero() {
+        // Importante: mantém em big-endian e remove zeros à esquerda
+        let bytes = value.to_be_bytes::<32>();
+        let mut start = 0;
+        while start < bytes.len() && bytes[start] == 0 {
+            start += 1;
+        }
+        let output = if start == bytes.len() {
+            Bytes::from(vec![0])
+        } else {
+            let slice = &bytes[start..];
+            Bytes::from(slice.to_vec())
+        };
+        println!("process_memory_value - non-zero output: {:?}", output);
+        Some(output)
+    } else {
+        let output = Bytes::from(vec![0]);
+        println!("process_memory_value - zero output: {:?}", output);
+        Some(output)
+    }
 }
 
 // #[inline]
-// fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
-//     pop!(interpreter, offset, len);
-
-//     let len = process_stack_value(interpreter, len);
-//     if len == 0 {
-//         interpreter.instruction_result = instruction_result;
-//         interpreter.next_action = crate::InterpreterAction::Return {
-//             result: InterpreterResult {
-//                 output: Bytes::default(),
-//                 gas: interpreter.gas,
-//                 result: instruction_result,
-//             },
-//         };
-//         return;
-//     }
-
-//     let offset = process_stack_value(interpreter, offset);
-//     resize_memory!(interpreter, offset, len);
-
-//     let gate_indices = interpreter.private_memory.get(offset).clone();
-
-//     let output = process_memory_value(interpreter, &gate_indices)
-//         .unwrap_or_else(|| panic!("Issue with calling process_memory_value in return_inner"));
-
-//     interpreter.instruction_result = instruction_result;
-//     interpreter.next_action = crate::InterpreterAction::Return {
-//         result: InterpreterResult {
-//             output,
-//             gas: interpreter.gas,
-//             result: instruction_result,
-//         },
-//     };
-// }
-
 #[inline]
 fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
-    // zero gas cost
-    // gas!(interpreter, gas::ZERO);
     pop!(interpreter, offset, len);
-    let len = as_usize_or_fail!(interpreter, len);
-    // important: offset must be ignored if len is zeros
-    let mut output = Bytes::default();
-    if len != 0 {
-        let offset = as_usize_or_fail!(interpreter, offset);
-        resize_memory!(interpreter, offset, len);
 
-        output = interpreter.shared_memory.slice(offset, len).to_vec().into()
+    let len = process_stack_value(interpreter, len);
+    println!("return_inner - len: {}", len);
+
+    if len == 0 {
+        interpreter.instruction_result = instruction_result;
+        interpreter.next_action = crate::InterpreterAction::Return {
+            result: InterpreterResult {
+                output: Bytes::default(),
+                gas: interpreter.gas,
+                result: instruction_result,
+            },
+        };
+        return;
     }
+
+    let offset = process_stack_value(interpreter, offset);
+    println!("return_inner - offset: {}", offset);
+
+    resize_memory!(interpreter, offset, len);
+
+    let mut output: Bytes = interpreter.shared_memory.slice(offset, len).to_vec().into();
+    println!("return_inner - shared_memory output: {:?}", output);
+
+    if output.is_empty() || output.iter().all(|&x| x == 0) {
+        let gate_indices = interpreter.private_memory.get(offset).clone();
+        if let Some(private_output) = process_memory_value(interpreter, &gate_indices) {
+            output = private_output;
+            println!("return_inner - private_memory output: {:?}", output);
+        }
+    }
+
+    println!("return_inner - final output: {:?}", output);
     interpreter.instruction_result = instruction_result;
     interpreter.next_action = crate::InterpreterAction::Return {
         result: InterpreterResult {
