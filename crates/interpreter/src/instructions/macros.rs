@@ -95,16 +95,19 @@ macro_rules! resize_memory {
     };
     ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
         let new_size = $offset.saturating_add($len);
-        let current_size =
-            core::cmp::max($interp.shared_memory.len(), $interp.private_memory.len());
-        if new_size > current_size {
+        if new_size > $interp.shared_memory.len() {
             #[cfg(feature = "memory_limit")]
             if $interp.shared_memory.limit_reached(new_size) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryLimitOOG;
                 return $ret;
             }
 
-            if !$crate::interpreter::resize_memory($interp, new_size) {
+            // Note: we can't use `Interpreter` directly here because of potential double-borrows.
+            if !$crate::interpreter::resize_memory(
+                &mut $interp.shared_memory,
+                &mut $interp.gas,
+                new_size,
+            ) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryOOG;
                 return $ret;
             }
@@ -256,7 +259,7 @@ macro_rules! pop_top_gates {
             return;
         }
         // SAFETY: Length is checked above.
-        let $x1 = unsafe { $interp.stack.top_unsafe() };
+        let mut $x1 = unsafe { $interp.stack.top_unsafe() };
         let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder);
     };
     ($interp:expr, $x1:ident, $x2:ident, $garbled_x1:ident, $garbled_x2:ident) => {

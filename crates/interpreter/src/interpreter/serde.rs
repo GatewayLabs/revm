@@ -1,7 +1,6 @@
 use super::Interpreter;
 use crate::{
     Contract, FunctionStack, Gas, InstructionResult, InterpreterAction, SharedMemory, Stack,
-    interpreter::PrivateMemory,
 };
 use compute::prelude::WRK17CircuitBuilder;
 use primitives::Bytes;
@@ -18,7 +17,6 @@ struct InterpreterSerde<'a> {
     is_eof: bool,
     is_eof_init: bool,
     shared_memory: &'a SharedMemory,
-    private_memory: &'a PrivateMemory,
     stack: &'a Stack,
     function_stack: &'a FunctionStack,
     return_data_buffer: &'a Bytes,
@@ -38,7 +36,6 @@ struct InterpreterDe {
     is_eof: bool,
     is_eof_init: bool,
     shared_memory: SharedMemory,
-    private_memory: PrivateMemory,
     stack: Stack,
     function_stack: FunctionStack,
     return_data_buffer: Bytes,
@@ -62,7 +59,6 @@ impl Serialize for Interpreter {
             is_eof: self.is_eof,
             is_eof_init: self.is_eof_init,
             shared_memory: &self.shared_memory,
-            private_memory: &self.private_memory,
             stack: &self.stack,
             function_stack: &self.function_stack,
             return_data_buffer: &self.return_data_buffer,
@@ -89,7 +85,6 @@ impl<'de> Deserialize<'de> for Interpreter {
             is_eof,
             is_eof_init,
             shared_memory,
-            private_memory,
             stack,
             function_stack,
             return_data_buffer,
@@ -116,7 +111,6 @@ impl<'de> Deserialize<'de> for Interpreter {
             is_eof,
             is_eof_init,
             shared_memory,
-            private_memory,
             stack,
             function_stack,
             return_data_buffer,

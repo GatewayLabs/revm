@@ -1,5 +1,4 @@
 mod contract;
-pub mod private_memory;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared_memory;
@@ -8,7 +7,6 @@ mod stack;
 use bytecode::opcode::OpCode;
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
-pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
 
@@ -48,7 +46,6 @@ pub struct Interpreter {
     /// Note: This field is only set while running the interpreter loop.
     /// Otherwise it is taken and replaced with empty shared memory.
     pub shared_memory: SharedMemory,
-    pub private_memory: PrivateMemory,
     /// Stack.
     pub stack: Stack,
     /// EOF function stack.
@@ -101,7 +98,6 @@ impl Interpreter {
             stack: Stack::new(),
             next_action: InterpreterAction::None,
             circuit_builder: WRK17CircuitBuilder::default(),
-            private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
         }
     }
@@ -396,7 +392,6 @@ impl Interpreter {
     pub fn run<FN, H: Host + ?Sized>(
         &mut self,
         shared_memory: SharedMemory,
-        private_memory: PrivateMemory,
         instruction_table: &[FN; 256],
         host: &mut H,
     ) -> InterpreterAction
@@ -405,7 +400,6 @@ impl Interpreter {
     {
         self.next_action = InterpreterAction::None;
         self.shared_memory = shared_memory;
-        self.private_memory = private_memory;
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
@@ -430,7 +424,7 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(self, new_size)
+        resize_memory(&mut self.shared_memory, &mut self.gas, new_size)
     }
 }
 
@@ -479,17 +473,14 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
+pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
-    let current_cost = interpreter.shared_memory.current_expansion_cost();
+    let current_cost = memory.current_expansion_cost();
     let cost = new_cost - current_cost;
-    let success = interpreter.gas.record_cost(cost);
+    let success = gas.record_cost(cost);
     if success {
-        let new_size = (new_words as usize) * 32;
-        // Resize both memories
-        interpreter.shared_memory.resize(new_size);
-        interpreter.private_memory.resize(new_size);
+        memory.resize((new_words as usize) * 32);
     }
     success
 }
@@ -508,7 +499,7 @@ mod tests {
         let mut host = crate::DummyHost::<DefaultEthereumWiring>::default();
         let table: &InstructionTable<DummyHost<DefaultEthereumWiring>> =
             &crate::table::make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, &mut host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, table, &mut host);
 
         let host: &mut dyn Host<EvmWiringT = DefaultEthereumWiring> =
             &mut host as &mut dyn Host<EvmWiringT = DefaultEthereumWiring>;
@@ -517,6 +508,6 @@ mod tests {
                 dyn Host<EvmWiringT = DefaultEthereumWiring>,
                 CancunSpec,
             >();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, table, host);
     }
 }

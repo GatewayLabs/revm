@@ -329,16 +329,8 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
 
     resize_memory!(interpreter, offset, len);
 
-    let mut output: Bytes = interpreter.shared_memory.slice(offset, len).to_vec().into();
+    let output: Bytes = interpreter.shared_memory.slice(offset, len).to_vec().into();
     println!("return_inner - shared_memory output: {:?}", output);
-
-    if output.is_empty() || output.iter().all(|&x| x == 0) {
-        let gate_indices = interpreter.private_memory.get(offset).clone();
-        if let Some(private_output) = process_memory_value(interpreter, &gate_indices) {
-            output = private_output;
-            println!("return_inner - private_memory output: {:?}", output);
-        }
-    }
 
     println!("return_inner - final output: {:?}", output);
     interpreter.instruction_result = instruction_result;
