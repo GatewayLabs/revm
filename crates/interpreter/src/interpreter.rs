@@ -237,14 +237,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, U256::ZERO);
+                push!(self, U256::ZERO.into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_eofcreate_outcome");
             }
             _ => {
-                push!(self, U256::ZERO)
+                push!(self, U256::ZERO.into())
             }
         }
     }
@@ -294,9 +294,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::ZERO
+                        U256::ZERO.into()
                     } else {
-                        U256::from(1)
+                        U256::from(1).into()
                     }
                 );
             }
@@ -306,9 +306,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(1)
+                        U256::from(1).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }
@@ -319,9 +319,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(2)
+                        U256::from(2).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }

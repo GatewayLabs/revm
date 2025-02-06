@@ -1,10 +1,5 @@
-
 use super::i256::{i256_div, i256_mod};
-use crate::{
-    gas,
-    interpreter::StackValueData,
-    Host, Interpreter,
-};
+use crate::{gas, interpreter::StackValueData, Host, Interpreter};
 use compute::prelude::CircuitExecutor;
 use primitives::U256;
 use specification::hardfork::Spec;
@@ -66,7 +61,7 @@ pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
-    
+
     let result = interpreter.circuit_builder.rem(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result);
@@ -166,11 +161,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         add(&mut interpreter, &mut host);
@@ -196,11 +191,11 @@ mod tests {
 
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         sub(&mut interpreter, &mut host);
@@ -229,11 +224,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function
@@ -264,11 +259,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function
@@ -299,11 +294,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function

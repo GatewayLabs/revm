@@ -2,7 +2,10 @@ use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
     gas, interpreter::StackValueData, Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::{prelude::GateIndexVec, uint::GarbledUint};
+use compute::{
+    prelude::GateIndexVec,
+    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
+};
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
@@ -110,7 +113,10 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 .compile_and_execute::<256>(&cond)
             {
                 Ok(result) => {
-                    if result != GarbledUint::zero() {
+                    println!("result: {:?}", result);
+                    let x: GarbledUint<256> = GarbledUint::new(vec![false; 256]);
+                    println!("x: {:?}", x);
+                    if result != x {
                         jump_inner(interpreter, target);
                     }
                 }
@@ -222,7 +228,10 @@ pub fn jumpf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
     // - 1 because we have already advanced the instruction pointer in `Interpreter::step`
-    push!(interpreter, U256::from(interpreter.program_counter() - 1));
+    push!(
+        interpreter,
+        U256::from(interpreter.program_counter() - 1).into()
+    );
 }
 #[inline]
 fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> usize {
@@ -406,8 +415,8 @@ mod test {
             [RJUMPI, 0x00, 0x03, RJUMPI, 0x00, 0x01, STOP, STOP].into(),
         ));
         interp.is_eof = true;
-        interp.stack.push(U256::from(1)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.gas = Gas::new(10000);
 
         // dont jump
@@ -476,7 +485,7 @@ mod test {
         interp.gas = Gas::new(1000);
 
         // more then max_index
-        interp.stack.push(U256::from(10)).unwrap();
+        interp.stack.push(U256::from(10).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 6);
 
@@ -488,7 +497,7 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to first index of vtable
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 7);
 
@@ -499,7 +508,7 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to second index of vtable
-        interp.stack.push(U256::from(1)).unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 8);
     }
@@ -641,9 +650,9 @@ mod test {
         interp.gas = Gas::new(10000);
 
         // Push the condition (1) onto the stack
-        interp.stack.push(U256::from(1)).unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
         // Push the target address (3) onto the stack
-        interp.stack.push(U256::from(3)).unwrap();
+        interp.stack.push(U256::from(3).into()).unwrap();
 
         // Execute the step
         interp.step(&table, &mut host);

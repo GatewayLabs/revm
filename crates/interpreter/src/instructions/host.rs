@@ -56,7 +56,7 @@ pub fn extcodesize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
         gas!(interpreter, 20);
     }
 
-    push!(interpreter, U256::from(code.len()));
+    push!(interpreter, U256::from(code.len()).into());
 }
 
 /// EIP-1052: EXTCODEHASH opcode
@@ -148,11 +148,20 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     }
     gas!(
         interpreter,
-        gas::sstore_cost(SPEC::SPEC_ID, &state_load.data, state_load.is_cold)
+        gas::sstore_cost(
+            &mut interpreter.circuit_builder,
+            SPEC::SPEC_ID,
+            &state_load.data,
+            state_load.is_cold
+        )
     );
     refund!(
         interpreter,
-        gas::sstore_refund(SPEC::SPEC_ID, &state_load.data)
+        gas::sstore_refund(
+            &mut interpreter.circuit_builder,
+            SPEC::SPEC_ID,
+            &state_load.data
+        )
     );
 }
 

@@ -70,7 +70,9 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             let eq_result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
+        StackValueData::Encrypted(_ciphertext) => {
+            panic!("Cannot convert encrypted value to garbled value")
+        }
     };
 
     *op1 = result;
@@ -235,11 +237,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             lt(&mut interpreter, &mut host);
@@ -297,11 +299,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             gt(&mut interpreter, &mut host);
@@ -359,11 +361,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             eq(&mut interpreter, &mut host);
@@ -417,7 +419,7 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.value)
+                .push(test.value.into())
                 .expect("Failed to push value to stack");
 
             println!("Value: {:?}", test.value);
@@ -471,7 +473,7 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             not(&mut interpreter, &mut host);
@@ -523,11 +525,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitand(&mut interpreter, &mut host);
@@ -590,11 +592,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitor(&mut interpreter, &mut host);
@@ -666,11 +668,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitxor(&mut interpreter, &mut host);
@@ -769,8 +771,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             shl::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -850,8 +852,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             shr::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -956,8 +958,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             sar::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -991,8 +993,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         for test in test_cases.iter() {
-            push!(interpreter, test.input);
-            push!(interpreter, U256::from(test.index));
+            push!(interpreter, test.input.into());
+            push!(interpreter, U256::from(test.index).into());
             byte(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into(), "Failed at index: {}", test.index);
