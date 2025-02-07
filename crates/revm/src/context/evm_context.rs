@@ -1,6 +1,7 @@
 use super::inner_evm_context::InnerEvmContext;
 use crate::{ContextPrecompiles, EvmWiring, FrameOrResult, CALL_STACK_LIMIT};
 use bytecode::{Bytecode, Eof, EOF_MAGIC_BYTES};
+use compute::prelude::WRK17CircuitBuilder;
 use core::ops::{Deref, DerefMut};
 use database_interface::Database;
 use derive_where::derive_where;
@@ -26,6 +27,8 @@ pub struct EvmContext<EvmWiringT: EvmWiring> {
     pub inner: InnerEvmContext<EvmWiringT>,
     /// Precompiles that are available for evm.
     pub precompiles: ContextPrecompiles<EvmWiringT>,
+    /// Circuit Builder
+    pub circuit_builder: WRK17CircuitBuilder,
 }
 
 impl<EvmWiringT: EvmWiring> Deref for EvmContext<EvmWiringT> {
@@ -51,6 +54,7 @@ where
         Self {
             inner: InnerEvmContext::new(db),
             precompiles: ContextPrecompiles::default(),
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 }
@@ -65,6 +69,7 @@ where
         Self {
             inner: InnerEvmContext::new_with_env(db, env),
             precompiles: ContextPrecompiles::default(),
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 
@@ -81,6 +86,7 @@ where
         EvmContext {
             inner: self.inner.with_db(db),
             precompiles: ContextPrecompiles::default(),
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 
@@ -545,6 +551,7 @@ pub(crate) mod test_utils {
                 error: Ok(()),
             },
             precompiles: ContextPrecompiles::default(),
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 
@@ -562,6 +569,7 @@ pub(crate) mod test_utils {
                 error: Ok(()),
             },
             precompiles: ContextPrecompiles::default(),
+            circuit_builder: WRK17CircuitBuilder::default(),
         }
     }
 }

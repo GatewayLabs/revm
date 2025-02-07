@@ -33,6 +33,7 @@ specification.workspace = true
 bytecode.workspace = true
 database = { workspace = true, optional = true }
 transaction.workspace = true
+compute.workspace = true
 
 # encryption
 solana-zk-sdk = { version = "2.1.8", optional = true }

@@ -38,7 +38,7 @@ pub fn selfbalance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
-    push!(interpreter, balance.data);
+    push!(interpreter, balance.data.into());
 }
 
 pub fn extcodesize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
@@ -148,20 +148,11 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     }
     gas!(
         interpreter,
-        gas::sstore_cost(
-            &mut interpreter.circuit_builder,
-            SPEC::SPEC_ID,
-            &state_load.data,
-            state_load.is_cold
-        )
+        gas::sstore_cost(SPEC::SPEC_ID, &state_load.data, state_load.is_cold)
     );
     refund!(
         interpreter,
-        gas::sstore_refund(
-            &mut interpreter.circuit_builder,
-            SPEC::SPEC_ID,
-            &state_load.data
-        )
+        gas::sstore_refund(SPEC::SPEC_ID, &state_load.data)
     );
 }
 

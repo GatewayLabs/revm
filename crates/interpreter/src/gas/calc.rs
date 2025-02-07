@@ -21,11 +21,7 @@ macro_rules! tri {
 /// `SSTORE` opcode refund calculation.
 #[allow(clippy::collapsible_else_if)]
 #[inline]
-pub fn sstore_refund(
-    circuit_builder: &mut WRK17CircuitBuilder,
-    spec_id: SpecId,
-    vals: &SStoreResult,
-) -> i64 {
+pub fn sstore_refund(spec_id: SpecId, vals: &SStoreResult) -> i64 {
     if spec_id.is_enabled_in(SpecId::ISTANBUL) {
         // EIP-3529: Reduction in refunds
         let sstore_clears_schedule = if spec_id.is_enabled_in(SpecId::LONDON) {
@@ -36,15 +32,15 @@ pub fn sstore_refund(
         if vals.is_new_eq_present() {
             0
         } else {
-            if vals.is_original_eq_present() && vals.is_new_zero(circuit_builder) {
+            if vals.is_original_eq_present() && vals.is_new_zero() {
                 sstore_clears_schedule
             } else {
                 let mut refund = 0;
 
-                if !vals.is_original_zero(circuit_builder) {
-                    if vals.is_present_zero(circuit_builder) {
+                if !vals.is_original_zero() {
+                    if vals.is_present_zero() {
                         refund -= sstore_clears_schedule;
-                    } else if vals.is_new_zero(circuit_builder) {
+                    } else if vals.is_new_zero() {
                         refund += sstore_clears_schedule;
                     }
                 }
@@ -55,7 +51,7 @@ pub fn sstore_refund(
                     } else {
                         (SSTORE_RESET, sload_cost(spec_id, false))
                     };
-                    if vals.is_original_zero(circuit_builder) {
+                    if vals.is_original_zero() {
                         refund += (SSTORE_SET - gas_sload) as i64;
                     } else {
                         refund += (gas_sstore_reset - gas_sload) as i64;
@@ -66,7 +62,7 @@ pub fn sstore_refund(
             }
         }
     } else {
-        if !vals.is_present_zero(circuit_builder) && vals.is_new_zero(circuit_builder) {
+        if !vals.is_present_zero() && vals.is_new_zero() {
             REFUND_SSTORE_CLEARS
         } else {
             0
@@ -199,18 +195,10 @@ pub const fn sload_cost(spec_id: SpecId, is_cold: bool) -> u64 {
 
 /// `SSTORE` opcode cost calculation.
 #[inline]
-pub fn sstore_cost(
-    circuit_builder: &mut WRK17CircuitBuilder,
-    spec_id: SpecId,
-    vals: &SStoreResult,
-    is_cold: bool,
-) -> u64 {
+pub fn sstore_cost(spec_id: SpecId, vals: &SStoreResult, is_cold: bool) -> u64 {
     if spec_id.is_enabled_in(SpecId::BERLIN) {
         // Berlin specification logic
-        let mut gas_cost = istanbul_sstore_cost::<WARM_STORAGE_READ_COST, WARM_SSTORE_RESET>(
-            circuit_builder,
-            vals,
-        );
+        let mut gas_cost = istanbul_sstore_cost::<WARM_STORAGE_READ_COST, WARM_SSTORE_RESET>(vals);
 
         if is_cold {
             gas_cost += COLD_SLOAD_COST;
@@ -218,22 +206,21 @@ pub fn sstore_cost(
         gas_cost
     } else if spec_id.is_enabled_in(SpecId::ISTANBUL) {
         // Istanbul logic
-        istanbul_sstore_cost::<ISTANBUL_SLOAD_GAS, SSTORE_RESET>(circuit_builder, vals)
+        istanbul_sstore_cost::<ISTANBUL_SLOAD_GAS, SSTORE_RESET>(vals)
     } else {
         // Frontier logic
-        frontier_sstore_cost(circuit_builder, vals)
+        frontier_sstore_cost(vals)
     }
 }
 
 /// EIP-2200: Structured Definitions for Net Gas Metering
 #[inline]
 fn istanbul_sstore_cost<const SLOAD_GAS: u64, const SSTORE_RESET_GAS: u64>(
-    circuit_builder: &mut WRK17CircuitBuilder,
     vals: &SStoreResult,
 ) -> u64 {
     if vals.is_new_eq_present() {
         SLOAD_GAS
-    } else if vals.is_original_eq_present() && vals.is_original_zero(circuit_builder) {
+    } else if vals.is_original_eq_present() && vals.is_original_zero() {
         SSTORE_SET
     } else if vals.is_original_eq_present() {
         SSTORE_RESET_GAS
@@ -244,8 +231,8 @@ fn istanbul_sstore_cost<const SLOAD_GAS: u64, const SSTORE_RESET_GAS: u64>(
 
 /// Frontier sstore cost just had two cases set and reset values.
 #[inline]
-fn frontier_sstore_cost(circuit_builder: &mut WRK17CircuitBuilder, vals: &SStoreResult) -> u64 {
-    if vals.is_present_zero(circuit_builder) && !vals.is_new_zero(circuit_builder) {
+fn frontier_sstore_cost(vals: &SStoreResult) -> u64 {
+    if vals.is_present_zero() && !vals.is_new_zero() {
         SSTORE_SET
     } else {
         SSTORE_RESET

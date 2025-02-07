@@ -13,8 +13,8 @@ pub use inner_evm_context::InnerEvmContext;
 use crate::EvmWiring;
 use database_interface::{Database, EmptyDB};
 use interpreter::{
-    as_u64_saturated, AccountLoad, Eip7702CodeLoad, Host, SStoreResult, SelfDestructResult,
-    StateLoad,
+    as_u64_saturated, interpreter::StackValueData, AccountLoad, Eip7702CodeLoad, Host,
+    SStoreResult, SelfDestructResult, StateLoad,
 };
 use primitives::{Address, Bytes, Log, B256, BLOCK_HASH_HISTORY, U256};
 use std::boxed::Box;

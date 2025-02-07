@@ -71,7 +71,7 @@ where
     }
 
     #[inline]
-    fn balance(&mut self, _address: Address) -> Option<StateLoad<StackValueData>> {
+    fn balance(&mut self, _address: Address) -> Option<StateLoad<U256>> {
         Some(Default::default())
     }
 
@@ -86,7 +86,7 @@ where
     }
 
     #[inline]
-    fn sload(&mut self, _address: Address, index: U256) -> Option<StateLoad<StackValueData>> {
+    fn sload(&mut self, _address: Address, index: U256) -> Option<StateLoad<U256>> {
         match self.storage.entry(index) {
             Entry::Occupied(entry) => Some(StateLoad::new((*entry.get()).into(), false)),
             Entry::Vacant(entry) => {
@@ -101,7 +101,7 @@ where
         &mut self,
         _address: Address,
         index: U256,
-        value: StackValueData,
+        value: U256,
     ) -> Option<StateLoad<SStoreResult>> {
         let present = self.storage.insert(index, value.clone().into());
         Some(StateLoad {
@@ -123,7 +123,7 @@ where
     }
 
     #[inline]
-    fn tstore(&mut self, _address: Address, index: U256, value: StackValueData) {
+    fn tstore(&mut self, _address: Address, index: U256, value: U256) {
         self.transient_storage.insert(index, value.into());
     }
 
