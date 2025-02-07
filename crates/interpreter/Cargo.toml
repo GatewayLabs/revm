@@ -29,26 +29,36 @@ specification.workspace = true
 wiring.workspace = true
 transaction.workspace = true
 compute.workspace = true
+encryption.workspace = true
+serde = { version = "1.0", optional = true }
 
-# mics
+serde_json = { version = "1.0", optional = true }
+base64 = { version = "0.21", optional = true }
+hex = { version = "0.4", optional = true }
+solana-zk-sdk = { version = "2.1.12", optional = true }
+
+# misc
 derive-where = { version = "1.2.7", default-features = false }
-
-# optional
-serde = { version = "1.0", default-features = false, features = [
-    "derive",
-    "rc",
-], optional = true }
+bincode = "1.3"
 
 [dev-dependencies]
 database-interface.workspace = true
 walkdir = "2.5"
-serde_json = "1.0"
-bincode = "1.3"
+bincode = "1.3.3"
 
 [features]
-default = ["std"]
+default = ["std", "serde"]
 std = ["serde?/std", "primitives/std", "wiring/std"]
 hashbrown = ["primitives/hashbrown"]
-serde = ["dep:serde", "primitives/serde", "bytecode/serde", "wiring/serde"]
+serde = [
+    "dep:serde",
+    "dep:serde_json",
+    "dep:base64",
+    "dep:hex",
+    "dep:solana-zk-sdk",
+    "primitives/serde",
+    "bytecode/serde",
+    "wiring/serde",
+]
 arbitrary = ["std", "primitives/arbitrary"]
 memory_limit = ["wiring/memory_limit"]

@@ -19,20 +19,22 @@ members = [
     "crates/wiring/transaction",
     "crates/specification",
     "crates/statetest-types",
+    "crates/encryption",
 
     # variants
     "crates/optimism",
 
     # examples
     "examples/block_traces",
+    "examples/abi_contract_deployment",
     "examples/contract_deployment",
     "examples/database_components",
     "examples/database_ref",
     "examples/uniswap_get_reserves",
     "examples/uniswap_v2_usdc_swap",
-    #"examples/custom_opcodes",
-    "examples/abi_contract_deployment",
-
+    "examples/add_example",
+    "examples/elgamal_example",
+    "examples/memory_example",
 ]
 
 [workspace.dependencies]
@@ -53,6 +55,7 @@ inspector = { path = "crates/inspector", package = "revm-inspector", version = "
 precompile = { path = "crates/precompile", package = "revm-precompile", version = "11.0.1", default-features = false }
 statetest-types = { path = "crates/statetest-types", package = "revm-statetest-types", version = "1.0.0", default-features = false }
 compute = { git = "https://github.com/GatewayLabs/circuit-sdk", package = "compute" }
+encryption = { path = "crates/encryption", package = "revm-encryption", version = "0.1.0", default-features = false }
 
 [workspace.package]
 license = "MIT"

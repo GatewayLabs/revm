@@ -1,17 +1,261 @@
-use crate::InstructionResult;
+use crate::{
+    instructions::utility::{garbled_int_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint},
+    InstructionResult,
+};
+use compute::{
+    prelude::{CircuitExecutor, GateIndexVec, WRK17CircuitBuilder},
+    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
+};
+use core::num;
 use core::{fmt, ptr};
-use primitives::{B256, U256};
+use encryption::{
+    elgamal::{Ciphertext, ElGamalEncryption, Keypair},
+    encryption_trait::Encryptor,
+};
+use primitives::{FixedBytes, B256, U256};
+use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 /// EVM interpreter stack limit.
 pub const STACK_LIMIT: usize = 1024;
 
+// Stack value data. Supports both public and private values.
+// - Private values are represented as a vector of gate input indices created via circuit builder
+// - Public values are represented as U256
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StackValueData {
+    Private(GateIndexVec),
+    Public(U256),
+    Encrypted(Ciphertext),
+}
+
+impl StackValueData {
+    pub fn zero() -> Self {
+        StackValueData::Public(U256::ZERO)
+    }
+
+    pub fn is_zero(&self, circuit_builder: &WRK17CircuitBuilder) -> bool {
+        match self {
+            StackValueData::Public(value) => value.is_zero(),
+            StackValueData::Private(value) => match circuit_builder.compile_and_execute(&value) {
+                Ok(result) => {
+                    println!("result: {:?}", result);
+                    result == GarbledUint::<256>::zero()
+                }
+                Err(_) => {
+                    panic!("Error in checking Private StackValueData is_zero()")
+                }
+            },
+            StackValueData::Encrypted(_) => false,
+        }
+    }
+
+    pub fn evaluate(&self, builder: &WRK17CircuitBuilder) -> U256 {
+        match self {
+            StackValueData::Public(val) => *val,
+            StackValueData::Private(val) => {
+                let result = builder
+                    .compile_and_execute(val)
+                    .expect("Failed to evaluate private value");
+                garbled_uint_to_ruint(&result).into()
+            }
+            StackValueData::Encrypted(_val) => {
+                panic!("Cannot evaluate encrypted value")
+            }
+        }
+    }
+
+    pub fn add(&self, other: &Self, builder: &mut WRK17CircuitBuilder) -> Self {
+        match (self, other) {
+            (StackValueData::Public(a), StackValueData::Public(b)) => {
+                StackValueData::Public(a.overflowing_add(*b).0)
+            }
+            (StackValueData::Public(a), StackValueData::Private(b)) => {
+                let a_garbled = ruint_to_garbled_uint(a);
+                let a_gates = builder.input(&a_garbled);
+                StackValueData::Private(builder.add(&a_gates, b))
+            }
+            (StackValueData::Private(a), StackValueData::Public(b)) => {
+                let b_garbled = ruint_to_garbled_uint(b);
+                let b_gates = builder.input(&b_garbled);
+                StackValueData::Private(builder.add(a, &b_gates))
+            }
+            (StackValueData::Private(a), StackValueData::Private(b)) => {
+                StackValueData::Private(builder.add(a, b))
+            }
+            (StackValueData::Encrypted(a), StackValueData::Encrypted(b)) => {
+                let result = a + b;
+                StackValueData::Encrypted(result)
+            }
+            _ => panic!("Cannot add different types of StackValueData"),
+        }
+    }
+
+    pub fn equals(&self, other: &Self, circuit_builder: Option<&mut WRK17CircuitBuilder>) -> bool {
+        match circuit_builder {
+            Some(builder) => {
+                let a_eval = self.evaluate(builder);
+                let b_eval = other.evaluate(builder);
+                a_eval == b_eval
+            }
+            None => match (self, other) {
+                (StackValueData::Public(a), StackValueData::Public(b)) => a == b,
+                (StackValueData::Encrypted(a), StackValueData::Encrypted(b)) => a == b,
+                _ => panic!("Cannot compare private values without circuit builder"),
+            },
+        }
+    }
+}
+
+impl From<i32> for StackValueData {
+    fn from(value: i32) -> Self {
+        _ = StackValueData::default().eq(&StackValueData::default());
+        StackValueData::Public(U256::from(value))
+    }
+}
+
+impl From<U256> for StackValueData {
+    fn from(value: U256) -> Self {
+        StackValueData::Public(value)
+    }
+}
+
+/// # Warning
+/// This implementation is deprecated and will be removed in the future. Implemented for Vec<StackValueData> compatibility
+/// Use [`equals()`](StackValueData::equals) method to pass circuit_builder
+///
+/// See also:
+/// - [`StackValueData::equals`] - Preferred comparison method
+/// - [`StackValueData::evaluate`] - For evaluating private values
+impl PartialEq for StackValueData {
+    fn eq(&self, other: &Self) -> bool {
+        #[allow(deprecated)]
+        match (self, other) {
+            (StackValueData::Public(a), StackValueData::Public(b)) => a == b,
+            (StackValueData::Private(_a), StackValueData::Private(_b)) => {
+                panic!("Cannot compare private values without circuit builder")
+            }
+            (StackValueData::Encrypted(a), StackValueData::Encrypted(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Default for StackValueData {
+    fn default() -> Self {
+        StackValueData::zero()
+    }
+}
+
+impl Into<U256> for StackValueData {
+    fn into(self) -> U256 {
+        match self {
+            StackValueData::Public(value) => value,
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+            StackValueData::Encrypted(_ciphertext) => {
+                panic!("Cannot convert encrypted value to U256")
+            }
+        }
+    }
+}
+
+impl Into<GateIndexVec> for StackValueData {
+    fn into(self) -> GateIndexVec {
+        match self {
+            StackValueData::Public(_) => panic!("Cannot convert public value to GateIndexVec"),
+            StackValueData::Private(value) => value,
+            StackValueData::Encrypted(_) => {
+                panic!("Cannot convert encrypted value to GateIndexVec")
+            }
+        }
+    }
+}
+
+impl StackValueData {
+    pub fn to_encrypted(&self, key: &Keypair) -> Self {
+        match self {
+            StackValueData::Public(value) => {
+                let ciphertext =
+                    ElGamalEncryption::encrypt(&value.to_le_bytes::<32>(), key.pubkey());
+                StackValueData::Encrypted(ciphertext)
+            }
+            StackValueData::Private(_) => panic!("Cannot encrypt private value"),
+            StackValueData::Encrypted(_) => self.clone(),
+        }
+    }
+    pub fn to_garbled_value(&self, circuit_builder: &mut WRK17CircuitBuilder) -> GateIndexVec {
+        match self {
+            StackValueData::Private(value) => value.clone(),
+            StackValueData::Public(value) => {
+                let garbled_uint = ruint_to_garbled_uint(value);
+                circuit_builder.input(&garbled_uint)
+            }
+            StackValueData::Encrypted(_ciphertext) => {
+                panic!("Cannot convert encrypted value to garbled value")
+            }
+        }
+    }
+    pub fn to_public_value(&self, circuit_builder: &WRK17CircuitBuilder) -> U256 {
+        match self {
+            StackValueData::Public(value) => *value,
+            StackValueData::Private(value) => {
+                let result: GarbledUint256 = circuit_builder.compile_and_execute(&value).unwrap();
+                garbled_uint_to_ruint(&result).into()
+            }
+            StackValueData::Encrypted(_ciphertext) => {
+                panic!("Cannot convert encrypted value to U256")
+            }
+        }
+    }
+}
+
+// Add From implementation for ergonomics
+
+impl std::cmp::Eq for StackValueData {}
+
+impl From<GateIndexVec> for StackValueData {
+    fn from(value: GateIndexVec) -> Self {
+        StackValueData::Private(value)
+    }
+}
+
+impl From<FixedBytes<32>> for StackValueData {
+    fn from(value: FixedBytes<32>) -> Self {
+        StackValueData::Public(value.into())
+    }
+}
+
+impl StackValueData {
+    pub fn to_u256(&self) -> U256 {
+        match self {
+            StackValueData::Public(value) => *value,
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+            StackValueData::Encrypted(_ciphertext) => {
+                panic!("Cannot convert encrypted value to U256")
+            }
+        }
+    }
+}
+
+impl StackValueData {
+    pub fn as_limbs(&self) -> &[u64; U256::LIMBS] {
+        match self {
+            StackValueData::Public(value) => value.as_limbs(),
+            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+            StackValueData::Encrypted(_ciphertext) => {
+                panic!("Cannot convert encrypted value to U256")
+            }
+        }
+    }
+}
+
 /// EVM stack with [STACK_LIMIT] capacity of words.
-#[derive(Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Stack {
     /// The underlying data of the stack.
-    data: Vec<U256>,
+    data: Vec<StackValueData>,
+    // TODO: Consider adding mutable reference to Circuit Builder here
 }
 
 impl fmt::Display for Stack {
@@ -21,7 +265,7 @@ impl fmt::Display for Stack {
             if i > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{x}")?;
+            write!(f, "{:?}", x)?;
         }
         f.write_str("]")
     }
@@ -69,26 +313,27 @@ impl Stack {
 
     /// Returns a reference to the underlying data buffer.
     #[inline]
-    pub fn data(&self) -> &Vec<U256> {
+    pub fn data(&self) -> &Vec<StackValueData> {
+        // export the data buffer for debugging purposes
         &self.data
     }
 
     /// Returns a mutable reference to the underlying data buffer.
     #[inline]
-    pub fn data_mut(&mut self) -> &mut Vec<U256> {
+    pub fn data_mut(&mut self) -> &mut Vec<StackValueData> {
         &mut self.data
     }
 
     /// Consumes the stack and returns the underlying data buffer.
     #[inline]
-    pub fn into_data(self) -> Vec<U256> {
+    pub fn into_data(self) -> Vec<StackValueData> {
         self.data
     }
 
     /// Removes the topmost element from the stack and returns it, or `StackUnderflow` if it is
     /// empty.
     #[inline]
-    pub fn pop(&mut self) -> Result<U256, InstructionResult> {
+    pub fn pop(&mut self) -> Result<StackValueData, InstructionResult> {
         self.data.pop().ok_or(InstructionResult::StackUnderflow)
     }
 
@@ -98,7 +343,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop_unsafe(&mut self) -> U256 {
+    pub unsafe fn pop_unsafe(&mut self) -> StackValueData {
         self.data.pop().unwrap_unchecked()
     }
 
@@ -108,7 +353,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn top_unsafe(&mut self) -> &mut U256 {
+    pub unsafe fn top_unsafe(&mut self) -> &mut StackValueData {
         let len = self.data.len();
         self.data.get_unchecked_mut(len - 1)
     }
@@ -119,7 +364,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop_top_unsafe(&mut self) -> (U256, &mut U256) {
+    pub unsafe fn pop_top_unsafe(&mut self) -> (StackValueData, &mut StackValueData) {
         let pop = self.pop_unsafe();
         let top = self.top_unsafe();
         (pop, top)
@@ -131,7 +376,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop2_unsafe(&mut self) -> (U256, U256) {
+    pub unsafe fn pop2_unsafe(&mut self) -> (StackValueData, StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         (pop1, pop2)
@@ -143,7 +388,9 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop2_top_unsafe(&mut self) -> (U256, U256, &mut U256) {
+    pub unsafe fn pop2_top_unsafe(
+        &mut self,
+    ) -> (StackValueData, StackValueData, &mut StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let top = self.top_unsafe();
@@ -157,7 +404,7 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop3_unsafe(&mut self) -> (U256, U256, U256) {
+    pub unsafe fn pop3_unsafe(&mut self) -> (StackValueData, StackValueData, StackValueData) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -171,7 +418,14 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop4_unsafe(&mut self) -> (U256, U256, U256, U256) {
+    pub unsafe fn pop4_unsafe(
+        &mut self,
+    ) -> (
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+    ) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -186,7 +440,15 @@ impl Stack {
     ///
     /// The caller is responsible for checking the length of the stack.
     #[inline]
-    pub unsafe fn pop5_unsafe(&mut self) -> (U256, U256, U256, U256, U256) {
+    pub unsafe fn pop5_unsafe(
+        &mut self,
+    ) -> (
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+        StackValueData,
+    ) {
         let pop1 = self.pop_unsafe();
         let pop2 = self.pop_unsafe();
         let pop3 = self.pop_unsafe();
@@ -200,7 +462,7 @@ impl Stack {
     /// returns `StackOverflow` error and leaves the stack unchanged.
     #[inline]
     pub fn push_b256(&mut self, value: B256) -> Result<(), InstructionResult> {
-        self.push(value.into())
+        self.push_stack_value_data(StackValueData::Public(value.into()))
     }
 
     /// Push a new value onto the stack.
@@ -208,7 +470,10 @@ impl Stack {
     /// If it will exceed the stack limit, returns `StackOverflow` error and leaves the stack
     /// unchanged.
     #[inline]
-    pub fn push(&mut self, value: U256) -> Result<(), InstructionResult> {
+    pub fn push_stack_value_data(
+        &mut self,
+        value: StackValueData,
+    ) -> Result<(), InstructionResult> {
         // Allows the compiler to optimize out the `Vec::push` capacity check.
         assume!(self.data.capacity() == STACK_LIMIT);
         if self.data.len() == STACK_LIMIT {
@@ -218,13 +483,18 @@ impl Stack {
         Ok(())
     }
 
+    #[inline]
+    pub fn push(&mut self, value: StackValueData) -> Result<(), InstructionResult> {
+        self.push_stack_value_data(value)
+    }
+
     /// Peek a value at given index for the stack, where the top of
     /// the stack is at index `0`. If the index is too large,
     /// `StackError::Underflow` is returned.
     #[inline]
-    pub fn peek(&self, no_from_top: usize) -> Result<U256, InstructionResult> {
+    pub fn peek(&self, no_from_top: usize) -> Result<StackValueData, InstructionResult> {
         if self.data.len() > no_from_top {
-            Ok(self.data[self.data.len() - no_from_top - 1])
+            Ok(self.data[self.data.len() - no_from_top - 1].clone())
         } else {
             Err(InstructionResult::StackUnderflow)
         }
@@ -294,8 +564,8 @@ impl Stack {
         Ok(())
     }
 
-    /// Pushes an arbitrary length slice of bytes onto the stack, padding the last word with zeros
-    /// if necessary.
+    /// Pushes an arbitrary length slice of bytes onto the stack as StackValueData::Public,
+    /// padding the last word with zeros if necessary.
     #[inline]
     pub fn push_slice(&mut self, slice: &[u8]) -> Result<(), InstructionResult> {
         if slice.is_empty() {
@@ -308,53 +578,58 @@ impl Stack {
             return Err(InstructionResult::StackOverflow);
         }
 
-        // SAFETY: length checked above.
-        unsafe {
-            let dst = self.data.as_mut_ptr().add(self.data.len()).cast::<u64>();
-            self.data.set_len(new_len);
+        // TODO: Optimize this by directly writing to the stack buffer
+        // Currently we're writing to a temporary buffer and then copying to the stack buffer
+        let mut temp_data = Vec::with_capacity(n_words * 4); // 4 u64 per U256
 
-            let mut i = 0;
+        let mut i = 0;
 
-            // write full words
-            let words = slice.chunks_exact(32);
-            let partial_last_word = words.remainder();
-            for word in words {
-                // Note: we unroll `U256::from_be_bytes` here to write directly into the buffer,
-                // instead of creating a 32 byte array on the stack and then copying it over.
-                for l in word.rchunks_exact(8) {
-                    dst.add(i).write(u64::from_be_bytes(l.try_into().unwrap()));
-                    i += 1;
-                }
+        // Write full words
+        let words = slice.chunks_exact(32);
+        let partial_last_word = words.remainder();
+        for word in words {
+            for l in word.rchunks_exact(8) {
+                temp_data.push(u64::from_be_bytes(l.try_into().unwrap()));
+                i += 1;
             }
+        }
 
-            if partial_last_word.is_empty() {
-                return Ok(());
-            }
-
-            // write limbs of partial last word
+        if !partial_last_word.is_empty() {
+            // Write limbs of partial last word
             let limbs = partial_last_word.rchunks_exact(8);
             let partial_last_limb = limbs.remainder();
             for l in limbs {
-                dst.add(i).write(u64::from_be_bytes(l.try_into().unwrap()));
+                temp_data.push(u64::from_be_bytes(l.try_into().unwrap()));
                 i += 1;
             }
 
-            // write partial last limb by padding with zeros
+            // Write partial last limb by padding with zeros
             if !partial_last_limb.is_empty() {
                 let mut tmp = [0u8; 8];
                 tmp[8 - partial_last_limb.len()..].copy_from_slice(partial_last_limb);
-                dst.add(i).write(u64::from_be_bytes(tmp));
+                temp_data.push(u64::from_be_bytes(tmp));
                 i += 1;
             }
+        }
 
-            debug_assert_eq!((i + 3) / 4, n_words, "wrote too much");
+        debug_assert_eq!((i + 3) / 4, n_words, "wrote too much");
 
-            // zero out upper bytes of last word
-            let m = i % 4; // 32 / 8
-            if m != 0 {
-                dst.add(i).write_bytes(0, 4 - m);
+        // Zero out upper bytes of last word
+        let m = i % 4; // 32 / 8
+        if m != 0 {
+            for _ in 0..(4 - m) {
+                temp_data.push(0);
             }
         }
+
+        let u256_data: Vec<StackValueData> = temp_data
+            .chunks_exact(4)
+            .map(|chunk| {
+                StackValueData::Public(U256::from_limbs([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            })
+            .collect();
+
+        self.data.extend_from_slice(&u256_data);
 
         Ok(())
     }
@@ -363,7 +638,11 @@ impl Stack {
     /// stack is at index `0`. If the index is too large,
     /// `StackError::Underflow` is returned.
     #[inline]
-    pub fn set(&mut self, no_from_top: usize, val: U256) -> Result<(), InstructionResult> {
+    pub fn set(
+        &mut self,
+        no_from_top: usize,
+        val: StackValueData,
+    ) -> Result<(), InstructionResult> {
         if self.data.len() > no_from_top {
             let len = self.data.len();
             self.data[len - no_from_top - 1] = val;
@@ -380,7 +659,7 @@ impl<'de> serde::Deserialize<'de> for Stack {
     where
         D: serde::Deserializer<'de>,
     {
-        let mut data = Vec::<U256>::deserialize(deserializer)?;
+        let mut data = Vec::<StackValueData>::deserialize(deserializer)?;
         if data.len() > STACK_LIMIT {
             return Err(serde::de::Error::custom(std::format!(
                 "stack size exceeds limit: {} > {}",
@@ -399,12 +678,9 @@ mod tests {
 
     fn run(f: impl FnOnce(&mut Stack)) {
         let mut stack = Stack::new();
-        // fill capacity with non-zero values
-        unsafe {
-            stack.data.set_len(STACK_LIMIT);
-            stack.data.fill(U256::MAX);
-            stack.data.set_len(0);
-        }
+        // Pre-allocate with proper capacity but keep length as 0
+        let data = Vec::with_capacity(STACK_LIMIT);
+        stack.data = data;
         f(&mut stack);
     }
 
@@ -419,38 +695,41 @@ mod tests {
         // one word
         run(|stack| {
             stack.push_slice(&[42]).unwrap();
-            assert_eq!(stack.data, [U256::from(42)]);
+            assert_eq!(stack.data, [U256::from(42).into()]);
         });
 
         let n = 0x1111_2222_3333_4444_5555_6666_7777_8888_u128;
-        run(|stack| {
+        run(|stack: &mut Stack| {
             stack.push_slice(&n.to_be_bytes()).unwrap();
-            assert_eq!(stack.data, [U256::from(n)]);
+            assert_eq!(stack.data, [U256::from(n).into()]);
         });
 
         // more than one word
         run(|stack| {
             let b = [U256::from(n).to_be_bytes::<32>(); 2].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::from(n); 2]);
+            assert_eq!(stack.data, vec![StackValueData::Public(U256::from(n)); 2]);
         });
 
         run(|stack| {
             let b = [&[0; 32][..], &[42u8]].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::from(42)]);
+            assert_eq!(stack.data, [U256::ZERO.into(), U256::from(42).into()]);
         });
 
         run(|stack| {
             let b = [&[0; 32][..], &n.to_be_bytes()].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::from(n)]);
+            assert_eq!(stack.data, [U256::ZERO.into(), U256::from(n).into()]);
         });
 
         run(|stack| {
             let b = [&[0; 64][..], &n.to_be_bytes()].concat();
             stack.push_slice(&b).unwrap();
-            assert_eq!(stack.data, [U256::ZERO, U256::ZERO, U256::from(n)]);
+            assert_eq!(
+                stack.data,
+                [U256::ZERO.into(), U256::ZERO.into(), U256::from(n).into()]
+            );
         });
     }
 
@@ -466,7 +745,7 @@ mod tests {
         // Test cloning a partially filled stack
         let mut partial_stack = Stack::new();
         for i in 0..10 {
-            partial_stack.push(U256::from(i)).unwrap();
+            partial_stack.push(U256::from(i).into()).unwrap();
         }
         let mut cloned_partial = partial_stack.clone();
         assert_eq!(partial_stack, cloned_partial);
@@ -474,7 +753,7 @@ mod tests {
         assert_eq!(cloned_partial.data().capacity(), STACK_LIMIT);
 
         // Test that modifying the clone doesn't affect the original
-        cloned_partial.push(U256::from(100)).unwrap();
+        cloned_partial.push(U256::from(100).into()).unwrap();
         assert_ne!(partial_stack, cloned_partial);
         assert_eq!(partial_stack.len(), 10);
         assert_eq!(cloned_partial.len(), 11);
@@ -482,7 +761,7 @@ mod tests {
         // Test cloning a full stack
         let mut full_stack = Stack::new();
         for i in 0..STACK_LIMIT {
-            full_stack.push(U256::from(i)).unwrap();
+            full_stack.push(U256::from(i).into()).unwrap();
         }
         let mut cloned_full = full_stack.clone();
         assert_eq!(full_stack, cloned_full);
@@ -491,11 +770,11 @@ mod tests {
 
         // Test push to the full original or cloned stack should return StackOverflow
         assert_eq!(
-            full_stack.push(U256::from(100)),
+            full_stack.push(U256::from(100).into()),
             Err(InstructionResult::StackOverflow)
         );
         assert_eq!(
-            cloned_full.push(U256::from(100)),
+            cloned_full.push(U256::from(100).into()),
             Err(InstructionResult::StackOverflow)
         );
     }

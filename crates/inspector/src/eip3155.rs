@@ -200,7 +200,7 @@ impl<EvmWiringT: EvmWiring> Inspector<EvmWiringT> for TracerEip3155 {
 
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<EvmWiringT>) {
         self.gas_inspector.step(interp, context);
-        self.stack.clone_from(interp.stack.data());
+        self.stack = interp.stack.data().iter().map(|v| v.to_u256()).collect();
         self.memory = if self.include_memory {
             Some(hex::encode_prefixed(interp.shared_memory.context_memory()))
         } else {

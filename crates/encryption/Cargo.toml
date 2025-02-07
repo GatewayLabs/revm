@@ -1,0 +1,10 @@
+[package]
+name = "revm-encryption"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-zk-sdk = "2.1.8"
+curve25519-dalek = "4.1.3"
+bincode = "1.3.3"
+primitives = { workspace = true }

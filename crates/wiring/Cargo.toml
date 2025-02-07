@@ -28,6 +28,10 @@ database-interface.workspace = true
 specification.workspace = true
 state.workspace = true
 transaction.workspace = true
+encryption = { workspace = true }
+
+# encryption
+solana-zk-sdk = { version = "2.1.8", optional = true }
 
 # mics
 dyn-clone = "1.0"

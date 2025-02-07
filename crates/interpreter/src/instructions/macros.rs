@@ -95,19 +95,16 @@ macro_rules! resize_memory {
     };
     ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
         let new_size = $offset.saturating_add($len);
-        if new_size > $interp.shared_memory.len() {
+        let current_size =
+            core::cmp::max($interp.shared_memory.len(), $interp.private_memory.len());
+        if new_size > current_size {
             #[cfg(feature = "memory_limit")]
             if $interp.shared_memory.limit_reached(new_size) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryLimitOOG;
                 return $ret;
             }
 
-            // Note: we can't use `Interpreter` directly here because of potential double-borrows.
-            if !$crate::interpreter::resize_memory(
-                &mut $interp.shared_memory,
-                &mut $interp.gas,
-                new_size,
-            ) {
+            if !$crate::interpreter::resize_memory($interp, new_size) {
                 $interp.instruction_result = $crate::InstructionResult::MemoryOOG;
                 return $ret;
             }
@@ -136,7 +133,7 @@ macro_rules! pop_address_ret {
         }
         // SAFETY: Length is checked above.
         let $x1 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
     };
     ($interp:expr, $x1:ident, $x2:ident, $ret:expr) => {
@@ -146,10 +143,10 @@ macro_rules! pop_address_ret {
         }
         // SAFETY: Length is checked above.
         let $x1 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
         let $x2 = ::primitives::Address::from_word(::primitives::B256::from(unsafe {
-            $interp.stack.pop_unsafe()
+            $interp.stack.pop_unsafe().to_u256()
         }));
     };
 }
@@ -247,6 +244,55 @@ macro_rules! pop_top {
         }
         // SAFETY: Length is checked above.
         let ($x1, $x2, $x3) = unsafe { $interp.stack.pop2_top_unsafe() };
+    };
+}
+
+// Pops 'StackValueData' and 'GateIndexVec' values from the stack. Fails the instruction if the stack is too small.
+#[macro_export]
+macro_rules! pop_top_gates {
+    ($interp:expr, $x1:ident, $garbled_x1:ident) => {
+        if $interp.stack.len() < 1 {
+            $interp.instruction_result = $crate::InstructionResult::StackUnderflow;
+            return;
+        }
+        // SAFETY: Length is checked above.
+        let $x1 = unsafe { $interp.stack.top_unsafe() };
+        let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder.borrow_mut());
+    };
+    ($interp:expr, $x1:ident, $x2:ident, $garbled_x1:ident, $garbled_x2:ident) => {
+        if $interp.stack.len() < 2 {
+            $interp.instruction_result = $crate::InstructionResult::StackUnderflow;
+            return;
+        }
+        // SAFETY: Length is checked above.
+        let ($x1, $x2, $garbled_x1, $garbled_x2) = unsafe {
+            let (val1, val2) = $interp.stack.pop_top_unsafe();
+            let mut cb = $interp.circuit_builder.borrow_mut();
+            let (garbled_val1, garbled_val2) = (
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
+            );
+            drop(cb);
+            (val1, val2, garbled_val1, garbled_val2)
+        };
+    };
+    ($interp:expr, $x1:ident, $x2:ident, $x3:ident) => {
+        if ($interp.stack.len() < 3) {
+            $interp.instruction_result = $crate::InstructionResult::StackUnderflow;
+            return;
+        }
+        // SAFETY: Length is checked above.
+        let ($x1, $x2, $x3, $garbled_x1, $garbled_x2, $garbled_x3) = unsafe {
+            let (val1, val2, val3) = $interp.stack.pop_top_unsafe();
+            let cb = $interp.circuit_builder.borrow_mut();
+            let (garbled_val1, garbled_val2, garbled_val3) = (
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
+                val3.to_garbled_value(&mut cb),
+            );
+            drop(cb);
+            (val1, val2, garbled_val1, garbled_val2, garbled_val3)
+        };
     };
 }
 

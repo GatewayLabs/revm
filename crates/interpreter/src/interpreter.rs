@@ -1,22 +1,28 @@
 mod contract;
+pub mod private_memory;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared_memory;
 mod stack;
 
 use bytecode::opcode::OpCode;
+use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
+pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
-pub use stack::{Stack, STACK_LIMIT};
+pub use stack::{Stack, StackValueData, STACK_LIMIT};
 
 use crate::{
     gas, push, push_b256, return_ok, return_revert, CallOutcome, CreateOutcome, FunctionStack, Gas,
     Host, InstructionResult, InterpreterAction,
 };
 use bytecode::{Bytecode, Eof};
+use core::cell::RefCell;
 use core::cmp::min;
+use encryption::Keypair;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// EVM bytecode interpreter.
@@ -44,6 +50,7 @@ pub struct Interpreter {
     /// Note: This field is only set while running the interpreter loop.
     /// Otherwise it is taken and replaced with empty shared memory.
     pub shared_memory: SharedMemory,
+    pub private_memory: PrivateMemory,
     /// Stack.
     pub stack: Stack,
     /// EOF function stack.
@@ -61,22 +68,36 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
+    pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
+    pub encryption_keypair: Option<Keypair>,
 }
 
-impl Default for Interpreter {
+impl<'cb> Default for Interpreter {
     fn default() -> Self {
-        Self::new(Contract::default(), u64::MAX, false)
+        Self::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 }
 
 impl Interpreter {
     /// Create new interpreter
-    pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
+    pub fn new(
+        contract: Contract,
+        gas_limit: u64,
+        is_static: bool,
+        circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
+    ) -> Self {
         if !contract.bytecode.is_execution_ready() {
             panic!("Contract is not execution ready {:?}", contract.bytecode);
         }
+
         let is_eof = contract.bytecode.is_eof();
         let bytecode = contract.bytecode.bytecode().clone();
+
         Self {
             instruction_pointer: bytecode.as_ptr(),
             bytecode,
@@ -91,7 +112,20 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
+            circuit_builder,
+            private_memory: EMPTY_PRIVATE_MEMORY,
+            encryption_keypair: None,
         }
+    }
+
+    #[inline]
+    pub fn reset_circuit_builder(&mut self) {
+        self.circuit_builder = Rc::new(RefCell::new(WRK17CircuitBuilder::default()));
+    }
+
+    #[inline]
+    pub fn set_encryption_keypair(&mut self, keypair: Keypair) {
+        self.encryption_keypair = Some(keypair);
     }
 
     /// Set is_eof_init to true, this is used to enable `RETURNCONTRACT` opcode.
@@ -120,6 +154,7 @@ impl Interpreter {
             ),
             0,
             false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         )
     }
 
@@ -151,9 +186,9 @@ impl Interpreter {
     /// Depending on the `InstructionResult` indicated by `create_outcome`, it performs one of the following:
     ///
     /// - `Ok`: Pushes the address from `create_outcome` to the stack, updates gas costs, and records any gas refunds.
-    /// - `Revert`: Pushes `U256::ZERO` to the stack and updates gas costs.
+    /// - `Revert`: Pushes `StackValueData::Public(U256::ZERO` to the stack and updates gas costs)
     /// - `FatalExternalError`: Sets the `instruction_result` to `InstructionResult::FatalExternalError`.
-    /// - `Default`: Pushes `U256::ZERO` to the stack.
+    /// - `Default`: Pushes `StackValueData::Public(U256::ZERO` to the stack)
     ///
     /// # Side Effects
     ///
@@ -181,14 +216,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, U256::ZERO);
+                push!(self, StackValueData::Public(U256::ZERO).into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_create_outcome");
             }
             _ => {
-                push!(self, U256::ZERO);
+                push!(self, StackValueData::Public(U256::ZERO).into())
             }
         }
     }
@@ -215,14 +250,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, U256::ZERO);
+                push!(self, U256::ZERO.into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_eofcreate_outcome");
             }
             _ => {
-                push!(self, U256::ZERO);
+                push!(self, U256::ZERO.into())
             }
         }
     }
@@ -272,9 +307,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::ZERO
+                        U256::ZERO.into()
                     } else {
-                        U256::from(1)
+                        U256::from(1).into()
                     }
                 );
             }
@@ -284,9 +319,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(1)
+                        U256::from(1).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }
@@ -297,9 +332,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(2)
+                        U256::from(2).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }
@@ -374,6 +409,7 @@ impl Interpreter {
     pub fn run<FN, H: Host + ?Sized>(
         &mut self,
         shared_memory: SharedMemory,
+        private_memory: PrivateMemory,
         instruction_table: &[FN; 256],
         host: &mut H,
     ) -> InterpreterAction
@@ -382,6 +418,7 @@ impl Interpreter {
     {
         self.next_action = InterpreterAction::None;
         self.shared_memory = shared_memory;
+        self.private_memory = private_memory;
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
@@ -406,7 +443,7 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(&mut self.shared_memory, &mut self.gas, new_size)
+        resize_memory(self, new_size)
     }
 }
 
@@ -455,14 +492,17 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) -> bool {
+pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
-    let current_cost = memory.current_expansion_cost();
+    let current_cost = interpreter.shared_memory.current_expansion_cost();
     let cost = new_cost - current_cost;
-    let success = gas.record_cost(cost);
+    let success = interpreter.gas.record_cost(cost);
     if success {
-        memory.resize((new_words as usize) * 32);
+        let new_size = (new_words as usize) * 32;
+        // Resize both memories
+        interpreter.shared_memory.resize(new_size);
+        interpreter.private_memory.resize(new_size);
     }
     success
 }
@@ -476,12 +516,17 @@ mod tests {
 
     #[test]
     fn object_safety() {
-        let mut interp = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interp = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         let mut host = crate::DummyHost::<DefaultEthereumWiring>::default();
         let table: &InstructionTable<DummyHost<DefaultEthereumWiring>> =
             &crate::table::make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, table, &mut host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, &mut host);
 
         let host: &mut dyn Host<EvmWiringT = DefaultEthereumWiring> =
             &mut host as &mut dyn Host<EvmWiringT = DefaultEthereumWiring>;
@@ -490,6 +535,6 @@ mod tests {
                 dyn Host<EvmWiringT = DefaultEthereumWiring>,
                 CancunSpec,
             >();
-        let _ = interp.run(EMPTY_SHARED_MEMORY, table, host);
+        let _ = interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, table, host);
     }
 }
