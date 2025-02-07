@@ -25,11 +25,11 @@ use interpreter::{
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
 
-// Runtime bytecode that adds 14 + 20
+// Runtime bytecode that subtract 13 from 75
 const RUNTIME_CODE: &[u8] = &[
-    0x60, 0x14,       // PUSH1 0x14 (20 decimal)
-    0x60, 0x0E,       // PUSH1 0x0E (14 decimal)
-    0x01,             // ADD (add the two values on top of the stack)
+    0x60, 0x4b,       // PUSH1 0x4b (75 decimal)
+    0x60, 0x0d,       // PUSH1 0x0d (13 decimal)
+    0x03,             // SUB (subtract the two values on top of the stack)
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -176,7 +176,7 @@ fn main() -> anyhow::Result<()> {
             if let StackValueData::Private(gate_indices) = value {
                 println!("  Detected Private Value");
                 println!("  Gate Indices: {:?}", gate_indices);
-
+                
                 let start = Instant::now();
                 let result: GarbledUint256 = interpreter.circuit_builder.compile_and_execute(&gate_indices)
                     .map_err(|e| {
@@ -191,7 +191,7 @@ fn main() -> anyhow::Result<()> {
                 println!("Total execution time: {:.2?}", elapsed);
                 
                 // Verification against expected result
-                let expected_result = 20 + 14;
+                let expected_result = 75 - 13;
                 println!("  Expected Result: {}", expected_result);
                 
                 assert_eq!(

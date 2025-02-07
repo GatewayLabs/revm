@@ -3109,6 +3109,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mul-example"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "compute",
+ "revm",
+ "revm-database",
+ "revm-interpreter",
+ "revm-primitives",
+ "serde_json",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5662,6 +5675,19 @@ dependencies = [
  "quote",
  "rustversion",
  "syn 2.0.91",
+]
+
+[[package]]
+name = "sub-example"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "compute",
+ "revm",
+ "revm-database",
+ "revm-interpreter",
+ "revm-primitives",
+ "serde_json",
 ]
 
 [[package]]
