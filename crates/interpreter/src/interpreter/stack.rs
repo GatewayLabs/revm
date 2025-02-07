@@ -50,7 +50,7 @@ impl StackValueData {
         }
     }
 
-    pub fn evaluate(&self, builder: &mut WRK17CircuitBuilder) -> U256 {
+    pub fn evaluate(&self, builder: &WRK17CircuitBuilder) -> U256 {
         match self {
             StackValueData::Public(val) => *val,
             StackValueData::Private(val) => {

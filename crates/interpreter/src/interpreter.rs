@@ -17,10 +17,12 @@ use crate::{
     Host, InstructionResult, InterpreterAction,
 };
 use bytecode::{Bytecode, Eof};
+use core::cell::RefCell;
 use core::cmp::min;
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair};
+use encryption::Keypair;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// EVM bytecode interpreter.
@@ -66,19 +68,29 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
-    pub circuit_builder: WRK17CircuitBuilder,
+    pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
 }
 
-impl Default for Interpreter {
+impl<'cb> Default for Interpreter {
     fn default() -> Self {
-        Self::new(Contract::default(), u64::MAX, false)
+        Self::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 }
 
 impl Interpreter {
     /// Create new interpreter
-    pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
+    pub fn new(
+        contract: Contract,
+        gas_limit: u64,
+        is_static: bool,
+        circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
+    ) -> Self {
         if !contract.bytecode.is_execution_ready() {
             panic!("Contract is not execution ready {:?}", contract.bytecode);
         }
@@ -100,7 +112,7 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder,
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
         }
@@ -108,7 +120,7 @@ impl Interpreter {
 
     #[inline]
     pub fn reset_circuit_builder(&mut self) {
-        self.circuit_builder = WRK17CircuitBuilder::default();
+        self.circuit_builder = Rc::new(RefCell::new(WRK17CircuitBuilder::default()));
     }
 
     #[inline]
@@ -142,6 +154,7 @@ impl Interpreter {
             ),
             0,
             false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         )
     }
 
@@ -503,7 +516,12 @@ mod tests {
 
     #[test]
     fn object_safety() {
-        let mut interp = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interp = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         let mut host = crate::DummyHost::<DefaultEthereumWiring>::default();
         let table: &InstructionTable<DummyHost<DefaultEthereumWiring>> =

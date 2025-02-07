@@ -257,7 +257,7 @@ macro_rules! pop_top_gates {
         }
         // SAFETY: Length is checked above.
         let $x1 = unsafe { $interp.stack.top_unsafe() };
-        let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder);
+        let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder.borrow_mut());
     };
     ($interp:expr, $x1:ident, $x2:ident, $garbled_x1:ident, $garbled_x2:ident) => {
         if $interp.stack.len() < 2 {
@@ -267,10 +267,12 @@ macro_rules! pop_top_gates {
         // SAFETY: Length is checked above.
         let ($x1, $x2, $garbled_x1, $garbled_x2) = unsafe {
             let (val1, val2) = $interp.stack.pop_top_unsafe();
+            let mut cb = $interp.circuit_builder.borrow_mut();
             let (garbled_val1, garbled_val2) = (
-                val1.to_garbled_value(&mut $interp.circuit_builder),
-                val2.to_garbled_value(&mut $interp.circuit_builder),
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
             );
+            drop(cb);
             (val1, val2, garbled_val1, garbled_val2)
         };
     };

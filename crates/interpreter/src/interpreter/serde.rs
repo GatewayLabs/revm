@@ -1,12 +1,15 @@
+use core::cell::RefCell;
+use std::rc::Rc;
+
 use super::Interpreter;
 use crate::{
-    Contract, FunctionStack, Gas, InstructionResult, InterpreterAction, SharedMemory, Stack,
-    interpreter::PrivateMemory,
+    interpreter::PrivateMemory, Contract, FunctionStack, Gas, InstructionResult, InterpreterAction,
+    SharedMemory, Stack,
 };
 use compute::prelude::WRK17CircuitBuilder;
+use encryption::elgamal::Keypair;
 use primitives::Bytes;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use encryption::elgamal::Keypair;
 
 #[derive(Serialize)]
 struct InterpreterSerde<'a> {
@@ -24,7 +27,7 @@ struct InterpreterSerde<'a> {
     return_data_buffer: &'a Bytes,
     is_static: bool,
     next_action: &'a InterpreterAction,
-    circuit_builder: &'a WRK17CircuitBuilder,
+    circuit_builder: &'a Rc<RefCell<WRK17CircuitBuilder>>,
     encryption_keypair: &'a Option<Keypair>,
 }
 
@@ -122,7 +125,7 @@ impl<'de> Deserialize<'de> for Interpreter {
             return_data_buffer,
             is_static,
             next_action,
-            circuit_builder,
+            circuit_builder: Rc::new(RefCell::new(circuit_builder)),
             encryption_keypair,
         })
     }
@@ -134,7 +137,12 @@ mod tests {
 
     #[test]
     fn test_serde() {
-        let interp = Interpreter::new(Contract::default(), u64::MAX, false);
+        let interp = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
         let serialized = bincode::serialize(&interp).unwrap();
         let de: Interpreter = bincode::deserialize(&serialized).unwrap();
         assert_eq!(interp.program_counter(), de.program_counter());

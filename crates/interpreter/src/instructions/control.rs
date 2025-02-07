@@ -36,6 +36,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         StackValueData::Private(condition_gates) => {
             if let Ok(result) = interpreter
                 .circuit_builder
+                .borrow_mut()
                 .compile_and_execute::<256>(&condition_gates)
             // NOTE: assume 256 bits due to public condition
             {
@@ -61,6 +62,7 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         StackValueData::Private(case_gates) => {
             if let Ok(result) = interpreter
                 .circuit_builder
+                .borrow_mut()
                 .compile_and_execute::<256>(&case_gates)
             {
                 let result = garbled_uint_to_ruint(&result);
@@ -108,25 +110,30 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             }
         }
         StackValueData::Private(cond) => {
-            match interpreter
-                .circuit_builder
-                .compile_and_execute::<256>(&cond)
-            {
+            // Borrow `circuit_builder` temporarily
+            let result = {
+                let cb = interpreter.circuit_builder.borrow_mut();
+                cb.compile_and_execute::<256>(&cond)
+            }; // `cb` goes out of scope here, releasing the borrow
+
+            match result {
                 Ok(result) => {
                     println!("result: {:?}", result);
                     let x: GarbledUint<256> = GarbledUint::new(vec![false; 256]);
                     println!("x: {:?}", x);
                     if result != x {
-                        jump_inner(interpreter, target);
+                        jump_inner(interpreter, target); // Safe to borrow `interpreter` mutably again
                     }
                 }
                 Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidJump; // NOTE: define granular error for gate execution error
+                    interpreter.instruction_result = InstructionResult::InvalidJump;
                     return;
                 }
-            };
+            }
         }
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
+        StackValueData::Encrypted(_ciphertext) => {
+            panic!("Cannot convert encrypted value to U256")
+        }
     }
 }
 
@@ -136,6 +143,7 @@ fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
         StackValueData::Public(target) => target,
         StackValueData::Private(target) => match interpreter
             .circuit_builder
+            .borrow_mut()
             .compile_and_execute::<256>(&target)
         {
             Ok(result) => garbled_uint_to_ruint(&result),
@@ -246,6 +254,7 @@ fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> 
         StackValueData::Private(gate_indices) => {
             match interpreter
                 .circuit_builder
+                .borrow_mut()
                 .compile_and_execute::<256>(&gate_indices)
             {
                 Ok(garbled_val) => {
@@ -275,6 +284,7 @@ fn process_memory_value(
 ) -> Option<Bytes> {
     let result = interpreter
         .circuit_builder
+        .borrow_mut()
         .compile_and_execute::<256>(gate_indices)
         .ok()?;
 
@@ -437,14 +447,14 @@ mod test {
         interp.is_eof = true;
 
         let garbled_one = GarbledUint::<256>::one();
-        let garbled_one_gates = interp.circuit_builder.input(&garbled_one);
+        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(garbled_one_gates))
             .unwrap();
 
         let garbled_zero = GarbledUint::<256>::zero();
-        let garbled_zero_gates = interp.circuit_builder.input(&garbled_zero);
+        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
@@ -540,7 +550,7 @@ mod test {
 
         // more then max_index
         let garbled_ten = ruint_to_garbled_uint(&U256::from(10));
-        let garbled_ten_gates = interp.circuit_builder.input(&garbled_ten);
+        let garbled_ten_gates = interp.circuit_builder.borrow_mut().input(&garbled_ten);
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(garbled_ten_gates))
@@ -557,7 +567,7 @@ mod test {
 
         // jump to first index of vtable
         let garbled_zero = ruint_to_garbled_uint(&U256::from(0));
-        let garbled_zero_gates = interp.circuit_builder.input(&garbled_zero);
+        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
@@ -573,7 +583,7 @@ mod test {
 
         // jump to second index of vtable
         let garbled_one = ruint_to_garbled_uint(&U256::from(1));
-        let garbled_one_gates = interp.circuit_builder.input(&garbled_one);
+        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(garbled_one_gates))
@@ -625,7 +635,7 @@ mod test {
 
         // Create a private target address
         let target = ruint_to_garbled_uint(&U256::from(2)); // JUMPDEST is at position 1
-        let target_gates = interp.circuit_builder.input(&target);
+        let target_gates = interp.circuit_builder.borrow_mut().input(&target);
 
         // Push the private target address onto the stack
         interp
@@ -672,7 +682,7 @@ mod test {
 
         // Create a private condition
         let condition = GarbledUint256::one();
-        let condition_gates = interp.circuit_builder.input(&condition);
+        let condition_gates = interp.circuit_builder.borrow_mut().input(&condition);
 
         // Push the private condition onto the stack
         interp

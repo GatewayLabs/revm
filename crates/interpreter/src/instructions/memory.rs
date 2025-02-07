@@ -23,7 +23,10 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
 
     let (offset_val, value) = unsafe { interpreter.stack.pop2_unsafe() };
-    let offset = as_usize_or_fail!(interpreter, offset_val.to_u256());
+    let offset = as_usize_or_fail!(
+        interpreter,
+        offset_val.evaluate(&interpreter.circuit_builder.borrow())
+    );
 
     let garbled_value = match value {
         StackValueData::Public(public_val) => {
@@ -37,6 +40,7 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                     let bit = (byte & (1 << i)) != 0;
                     let bit_gate = interpreter
                         .circuit_builder
+                        .borrow_mut()
                         .input(&GarbledBoolean::from(bit));
                     gate_indices.push(bit_gate[0]);
                 }
@@ -63,7 +67,10 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
 
     let (offset_val, value) = unsafe { interpreter.stack.pop2_unsafe() };
-    let offset = as_usize_or_fail!(interpreter, offset_val.to_u256());
+    let offset = as_usize_or_fail!(
+        interpreter,
+        offset_val.evaluate(&interpreter.circuit_builder.borrow())
+    );
 
     // Pre-allocate with exact capacity
     let mut gate_indices = GateIndexVec::with_capacity(64);
@@ -77,6 +84,7 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             for i in 0..8 {
                 let bit_gate = interpreter
                     .circuit_builder
+                    .borrow_mut()
                     .input(&GarbledBoolean::from((byte & (1 << i)) != 0));
                 gate_indices.push(bit_gate[0]);
             }
@@ -93,6 +101,7 @@ pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     // Fill remaining bits with zeros
     let zero_gate = interpreter
         .circuit_builder
+        .borrow_mut()
         .input(&GarbledBoolean::from(false));
     while gate_indices.len() < 64 {
         gate_indices.push(zero_gate[0]);
@@ -121,6 +130,7 @@ pub fn msize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         let bit = remaining & 1 == 1;
         let bit_gate = interpreter
             .circuit_builder
+            .borrow_mut()
             .input(&GarbledBoolean::from(bit));
         gate_indices.push(bit_gate[0]);
         remaining >>= 1;
@@ -166,19 +176,27 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
 #[cfg(test)]
 mod tests {
 
+    use core::cell::RefCell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::{
         instructions::utility::{garbled_uint64_to_ruint, ruint_to_garbled_uint},
         Contract, DummyHost, Interpreter,
     };
-    use compute::uint::GarbledUint256;
+    use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
     use primitives::{ruint::Uint, U256};
 
     fn generate_interpreter() -> Interpreter {
         let contract = Contract::default();
         let gas_limit = 10_000_000;
         let is_static = false;
-        Interpreter::new(contract, gas_limit, is_static)
+        Interpreter::new(
+            contract,
+            gas_limit,
+            is_static,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 
     fn generate_host() -> DummyHost<
@@ -228,6 +246,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -267,6 +286,7 @@ mod tests {
         let stored_value = interpreter.private_memory.get(0).clone();
         let stored_value_converted: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&stored_value)
             .unwrap();
 
@@ -289,6 +309,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -328,6 +349,7 @@ mod tests {
         let stored_value = interpreter.private_memory.get(0).clone();
         let stored_value_converted: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&stored_value)
             .unwrap();
         assert_eq!(stored_value_converted, garbled_value_manual);
@@ -349,6 +371,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -374,6 +397,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&size.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(U256::from(0));
@@ -423,6 +447,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -472,6 +497,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -521,6 +547,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&loaded_value.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(raw_value);
@@ -546,6 +573,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&size.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(U256::from(0));

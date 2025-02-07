@@ -2,6 +2,7 @@ use super::inner_evm_context::InnerEvmContext;
 use crate::{ContextPrecompiles, EvmWiring, FrameOrResult, CALL_STACK_LIMIT};
 use bytecode::{Bytecode, Eof, EOF_MAGIC_BYTES};
 use compute::prelude::WRK17CircuitBuilder;
+use core::cell::RefCell;
 use core::ops::{Deref, DerefMut};
 use database_interface::Database;
 use derive_where::derive_where;
@@ -13,6 +14,7 @@ use interpreter::{
 use precompile::PrecompileErrors;
 use primitives::{keccak256, Address, Bytes, B256};
 use specification::hardfork::SpecId::{self, *};
+use std::rc::Rc;
 use std::{boxed::Box, sync::Arc};
 use wiring::{
     default::{CreateScheme, EnvWiring},
@@ -28,7 +30,7 @@ pub struct EvmContext<EvmWiringT: EvmWiring> {
     /// Precompiles that are available for evm.
     pub precompiles: ContextPrecompiles<EvmWiringT>,
     /// Circuit Builder
-    pub circuit_builder: WRK17CircuitBuilder,
+    pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
 }
 
 impl<EvmWiringT: EvmWiring> Deref for EvmContext<EvmWiringT> {
@@ -54,7 +56,7 @@ where
         Self {
             inner: InnerEvmContext::new(db),
             precompiles: ContextPrecompiles::default(),
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder: Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         }
     }
 }
@@ -69,7 +71,7 @@ where
         Self {
             inner: InnerEvmContext::new_with_env(db, env),
             precompiles: ContextPrecompiles::default(),
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder: Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         }
     }
 
@@ -86,7 +88,7 @@ where
         EvmContext {
             inner: self.inner.with_db(db),
             precompiles: ContextPrecompiles::default(),
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder: Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         }
     }
 
@@ -253,7 +255,12 @@ where
                 Contract::new_with_context(inputs.input.clone(), bytecode, Some(code_hash), inputs);
 
             // Create interpreter and executes call and push new CallStackFrame.
-            let mut interpreter = Interpreter::new(contract, gas.limit(), inputs.is_static);
+            let mut interpreter = Interpreter::new(
+                contract,
+                gas.limit(),
+                inputs.is_static,
+                self.circuit_builder.clone(),
+            );
 
             if let Some(keypair) = &self.cfg().encryption_keypair {
                 interpreter.set_encryption_keypair(keypair.clone());
@@ -354,7 +361,12 @@ where
             inputs.value,
         );
 
-        let mut interpreter = Interpreter::new(contract, inputs.gas_limit, false);
+        let mut interpreter = Interpreter::new(
+            contract,
+            inputs.gas_limit,
+            false,
+            self.circuit_builder.clone(),
+        );
 
         if let Some(keypair) = &self.cfg().encryption_keypair {
             interpreter.set_encryption_keypair(keypair.clone());
@@ -467,7 +479,12 @@ where
             inputs.value,
         );
 
-        let mut interpreter = Interpreter::new(contract, inputs.gas_limit, false);
+        let mut interpreter = Interpreter::new(
+            contract,
+            inputs.gas_limit,
+            false,
+            self.circuit_builder.clone(),
+        );
 
         if let Some(keypair) = &self.cfg().encryption_keypair {
             interpreter.set_encryption_keypair(keypair.clone());
@@ -551,7 +568,7 @@ pub(crate) mod test_utils {
                 error: Ok(()),
             },
             precompiles: ContextPrecompiles::default(),
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder: Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         }
     }
 
@@ -569,7 +586,7 @@ pub(crate) mod test_utils {
                 error: Ok(()),
             },
             precompiles: ContextPrecompiles::default(),
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder: Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         }
     }
 }
