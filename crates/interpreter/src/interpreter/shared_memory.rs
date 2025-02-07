@@ -1,6 +1,12 @@
+use compute::prelude::GateIndexVec;
 use core::{cmp::min, fmt, ops::Range};
 use primitives::{hex, B256, U256};
 use std::vec::Vec;
+
+pub enum MemoryWord {
+    Public(Vec<u8>),
+    Private(GateIndexVec),
+}
 
 /// A sequential memory shared between calls, which uses
 /// a `Vec` for internal representation.
