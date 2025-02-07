@@ -5678,6 +5678,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sub-example"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "compute",
+ "revm",
+ "revm-database",
+ "revm-interpreter",
+ "revm-primitives",
+ "serde_json",
+]
+
+[[package]]
 name = "substrate-bn"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

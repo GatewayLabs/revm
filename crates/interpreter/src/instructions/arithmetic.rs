@@ -41,7 +41,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.sub(&garbled_op1, &garbled_op2);
+    let result = interpreter.circuit_builder.sub(&garbled_op2, &garbled_op1);
 
     *op2 = StackValueData::Private(result);
 }
@@ -196,12 +196,12 @@ mod tests {
 
         interpreter
             .stack
-            .push(op2.clone())
-            .expect("Failed to push op2 to stack");
-        interpreter
-            .stack
             .push(op1.clone())
             .expect("Failed to push op1 to stack");
+        interpreter
+            .stack
+            .push(op2.clone())
+            .expect("Failed to push op2 to stack");
 
         sub(&mut interpreter, &mut host);
 

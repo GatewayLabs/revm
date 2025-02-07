@@ -34,6 +34,7 @@ members = [
     "examples/uniswap_v2_usdc_swap",
     "examples/add_example",
     "examples/mul_example",
+    "examples/sub_example",
     "examples/elgamal_example",
     "examples/memory_example",
 ]
