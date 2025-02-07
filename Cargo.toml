@@ -54,8 +54,7 @@ interpreter = { path = "crates/interpreter", package = "revm-interpreter", versi
 inspector = { path = "crates/inspector", package = "revm-inspector", version = "1.0.0", default-features = false }
 precompile = { path = "crates/precompile", package = "revm-precompile", version = "11.0.1", default-features = false }
 statetest-types = { path = "crates/statetest-types", package = "revm-statetest-types", version = "1.0.0", default-features = false }
-# compute = { git = "https://github.com/GatewayLabs/circuit-sdk", package = "compute" } // TODO: revert once changes are merged
-compute = { path = "../circuit-sdk/compute" }
+compute = { git = "https://github.com/GatewayLabs/circuit-sdk", package = "compute" }
 encryption = { path = "crates/encryption", package = "revm-encryption", version = "0.1.0", default-features = false }
 
 [workspace.package]
