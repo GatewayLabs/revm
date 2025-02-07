@@ -284,11 +284,13 @@ macro_rules! pop_top_gates {
         // SAFETY: Length is checked above.
         let ($x1, $x2, $x3, $garbled_x1, $garbled_x2, $garbled_x3) = unsafe {
             let (val1, val2, val3) = $interp.stack.pop_top_unsafe();
+            let cb = $interp.circuit_builder.borrow_mut();
             let (garbled_val1, garbled_val2, garbled_val3) = (
-                val1.to_garbled_value(&mut $interp.circuit_builder),
-                val2.to_garbled_value(&mut $interp.circuit_builder),
-                val3.to_garbled_value(&mut $interp.circuit_builder),
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
+                val3.to_garbled_value(&mut cb),
             );
+            drop(cb);
             (val1, val2, garbled_val1, garbled_val2, garbled_val3)
         };
     };
