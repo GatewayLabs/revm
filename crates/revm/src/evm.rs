@@ -6,7 +6,9 @@ use crate::{
 };
 use core::fmt::{self, Debug};
 use database_interface::{Database, DatabaseCommit};
-use interpreter::{interpreter::PrivateMemory, Host, InterpreterAction, NewFrameAction, SharedMemory};
+use interpreter::{
+    interpreter::PrivateMemory, Host, InterpreterAction, NewFrameAction, SharedMemory,
+};
 use std::{boxed::Box, vec::Vec};
 use wiring::{
     default::{CfgEnv, EnvWiring},
@@ -108,24 +110,25 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
         #[cfg(not(feature = "memory_limit"))]
         let mut shared_memory = SharedMemory::new();
 
-
         #[cfg(feature = "memory_limit")]
         let mut private_memory =
-        PrivateMemory::new_with_memory_limit(self.context.evm.env.cfg.memory_limit);
+            PrivateMemory::new_with_memory_limit(self.context.evm.env.cfg.memory_limit);
         #[cfg(not(feature = "memory_limit"))]
         let mut private_memory = PrivateMemory::new();
 
         shared_memory.new_context();
-        private_memory.new_context(); 
 
         // Peek the last stack frame.
         let mut stack_frame = call_stack.last_mut().unwrap();
 
         loop {
             // Execute the frame.
-            let next_action =
-                self.handler
-                    .execute_frame(stack_frame, &mut shared_memory, &mut private_memory, &mut self.context)?;
+            let next_action = self.handler.execute_frame(
+                stack_frame,
+                &mut shared_memory,
+                &mut private_memory,
+                &mut self.context,
+            )?;
 
             // Take error and break the loop, if any.
             // This error can be set in the Interpreter when it interacts with the context.
@@ -145,7 +148,6 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
                 InterpreterAction::Return { result } => {
                     // free memory context.
                     shared_memory.free_context();
-                    private_memory.free_context(); 
 
                     // pop last frame from the stack and consume it to create FrameResult.
                     let returned_frame = call_stack
@@ -174,7 +176,6 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
             match frame_or_result {
                 FrameOrResult::Frame(frame) => {
                     shared_memory.new_context();
-                    private_memory.new_context(); 
                     call_stack.push(frame);
                     stack_frame = call_stack.last_mut().unwrap();
                 }

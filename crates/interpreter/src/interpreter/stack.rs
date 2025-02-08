@@ -255,7 +255,6 @@ impl StackValueData {
 pub struct Stack {
     /// The underlying data of the stack.
     data: Vec<StackValueData>,
-    // TODO: Consider adding mutable reference to Circuit Builder here
 }
 
 impl fmt::Display for Stack {

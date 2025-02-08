@@ -1,6 +1,114 @@
-use compute::{prelude::{GateIndexVec, WRK17CircuitBuilder}, uint::GarbledUint};
+use compute::prelude::GateIndexVec;
 use core::fmt;
+use core::ops::Index;
+use encryption::Ciphertext;
+use primitives::ruint::Uint;
+use primitives::U256;
+use std::hash::{Hash, Hasher};
 use std::vec::Vec;
+
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+pub struct PrivateRef {
+    tag: [u8; 4],
+    index: [u8; 28],
+}
+
+const DEFAULT_PRIVATE_REF_TAG: &[u8; 4] = b"PRIV";
+
+/// Encode a PrivateRef as U256 representation
+impl Into<Uint<256, 4>> for PrivateRef {
+    fn into(self) -> U256 {
+        let mut bytes = [0u8; 32];
+        bytes[..4].copy_from_slice(&DEFAULT_PRIVATE_REF_TAG[..]);
+        bytes[4..].copy_from_slice(&self.index);
+        U256::from_le_bytes::<32>(bytes)
+    }
+}
+
+#[inline]
+pub(crate) fn is_private_tag(bytes: &[u8]) -> bool {
+    bytes.len() >= 4 && bytes[..4] == DEFAULT_PRIVATE_REF_TAG[..]
+}
+
+impl TryFrom<&[u8]> for PrivateRef {
+    type Error = ();
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if !is_private_tag(value) {
+            return Err(());
+        }
+
+        let mut tag: [u8; 4] = [0; 4];
+        tag.copy_from_slice(&value[..4]);
+
+        let mut index: [u8; 28] = [0; 28];
+        index.copy_from_slice(&value[4..]);
+
+        Ok(PrivateRef { tag, index })
+    }
+}
+
+/// Decode PrivateRef struct from U256 representation
+impl TryFrom<Uint<256, 4>> for PrivateRef {
+    type Error = ();
+
+    fn try_from(value: U256) -> Result<Self, Self::Error> {
+        let bytes = value.to_le_bytes::<32>();
+        if !is_private_tag(&bytes) {
+            return Err(());
+        }
+
+        let mut tag: [u8; 4] = [0; 4];
+        tag.copy_from_slice(&bytes[..4]);
+
+        let mut index = [0u8; 28];
+        index.copy_from_slice(&bytes[4..]);
+
+        Ok(PrivateRef { tag, index })
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Eq, Clone)]
+pub enum PrivateMemoryValue {
+    Private(GateIndexVec),
+    Encrypted(Ciphertext),
+}
+
+impl std::hash::Hash for PrivateMemoryValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PrivateMemoryValue::Private(gate_index_vec) => {
+                for gate_index in gate_index_vec.iter() {
+                    gate_index.hash(state);
+                }
+            }
+            PrivateMemoryValue::Encrypted(ciphertext) => {
+                ciphertext.to_bytes().hash(state);
+            }
+        }
+    }
+}
+
+impl std::cmp::PartialEq for PrivateMemoryValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Private(l0), Self::Private(r0)) => l0 == r0,
+            (Self::Encrypted(l0), Self::Encrypted(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
+impl PrivateMemoryValue {
+    pub fn copy(&self) -> Self {
+        match self {
+            Self::Private(gate_index_vec) => Self::Private(gate_index_vec.clone()),
+            Self::Encrypted(ciphertext) => Self::Encrypted(ciphertext.clone()),
+        }
+    }
+}
 
 /// A sequential memory for private data, which uses
 /// a `Vec` for internal representation.
@@ -10,27 +118,13 @@ use std::vec::Vec;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PrivateMemory {
     /// The underlying buffer.
-    buffer: Vec<GateIndexVec>,
-    /// Memory checkpoints for each depth.
-    /// Invariant: these are always in bounds of `data`.
-    checkpoints: Vec<usize>,
-    /// Invariant: equals `self.checkpoints.last()`
-    last_checkpoint: usize,
-    /// Memory limit. See [`CfgEnv`](wiring::default::CfgEnv).
-    #[cfg(feature = "memory_limit")]
-    memory_limit: u64,
+    data: Vec<PrivateMemoryValue>,
 }
 
 /// Empty private memory.
 ///
 /// Used as placeholder inside Interpreter when it is not running.
-pub const EMPTY_PRIVATE_MEMORY: PrivateMemory = PrivateMemory {
-    buffer: Vec::new(),
-    checkpoints: Vec::new(),
-    last_checkpoint: 0,
-    #[cfg(feature = "memory_limit")]
-    memory_limit: u64::MAX,
-};
+pub const EMPTY_PRIVATE_MEMORY: PrivateMemory = PrivateMemory { data: Vec::new() };
 
 impl fmt::Debug for PrivateMemory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,121 +147,42 @@ impl PrivateMemory {
     /// The default initial capacity is 4KiB.
     #[inline]
     pub fn new() -> Self {
-        Self::with_capacity(4 * 1024)
+        Self::default()
     }
 
-    /// Creates a new memory instance that can be shared between calls with the given `capacity`.
     #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            buffer: Vec::with_capacity(capacity),
-            checkpoints: Vec::with_capacity(32),
-            last_checkpoint: 0,
-            #[cfg(feature = "memory_limit")]
-            memory_limit: u64::MAX,
+    pub fn push(&mut self, value: PrivateMemoryValue) -> PrivateRef {
+        self.data.push(value);
+
+        let id = self.data.len() - 1;
+
+        let mut index: [u8; 28] = [0; 28];
+        index[..id.to_le_bytes().len()].copy_from_slice(&id.to_le_bytes());
+
+        PrivateRef {
+            index,
+            tag: DEFAULT_PRIVATE_REF_TAG.clone(),
         }
     }
 
-    /// Creates a new memory instance that can be shared between calls,
-    /// with `memory_limit` as upper bound for allocation size.
-    ///
-    /// The default initial capacity is 4KiB.
-    #[cfg(feature = "memory_limit")]
     #[inline]
-    pub fn new_with_memory_limit(memory_limit: u64) -> Self {
-        Self {
-            memory_limit,
-            ..Self::new()
-        }
-    }
+    pub fn get(&self, private_ref: PrivateRef) -> PrivateMemoryValue {
+        let mut index_bytes = [0u8; 8];
+        index_bytes.copy_from_slice(&private_ref.index[..8]);
+        let index = usize::from_le_bytes(index_bytes);
 
-    /// Returns `true` if the `new_size` for the current context memory will
-    /// make the shared buffer length exceed the `memory_limit`.
-    #[cfg(feature = "memory_limit")]
-    #[inline]
-    pub fn limit_reached(&self, new_size: usize) -> bool {
-        self.last_checkpoint.saturating_add(new_size) as u64 > self.memory_limit
-    }
-
-    /// Prepares the private memory for a new context.
-    #[inline]
-    pub fn new_context(&mut self) {
-        let new_checkpoint = self.buffer.len();
-        self.checkpoints.push(new_checkpoint);
-        self.last_checkpoint = new_checkpoint;
-    }
-
-    /// Prepares the private memory for returning to the previous context.
-    #[inline]
-    pub fn free_context(&mut self) {
-        if let Some(old_checkpoint) = self.checkpoints.pop() {
-            self.last_checkpoint = self.checkpoints.last().cloned().unwrap_or_default();
-            // SAFETY: buffer length is less than or equal `old_checkpoint`
-            unsafe { self.buffer.set_len(old_checkpoint) };
-        }
+        self.data.get(index).unwrap().clone()
     }
 
     /// Returns the length of the current memory range.
     #[inline]
     pub fn len(&self) -> usize {
-        self.buffer.len() - self.last_checkpoint
+        self.data.len()
     }
 
     /// Returns `true` if the current memory range is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Resizes the memory in-place so that `len` is equal to `new_len`.
-    #[inline]
-    pub fn resize(&mut self, new_size: usize) {
-        let target_size = self.last_checkpoint + new_size;
-        
-        let mut local_builder = WRK17CircuitBuilder::default();
-        let gate_vec: GarbledUint<1> = GarbledUint::from(false);
-        let zero_value = local_builder.input(&gate_vec);
-        
-        self.buffer.resize_with(target_size, || zero_value.clone());
-    }
-
-    /// Returns a reference to a GateIndexVec at the given offset.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn get(&self, offset: usize) -> &GateIndexVec {
-        let actual_offset = self.last_checkpoint + offset;
-        &self.buffer[actual_offset]
-    }
-
-    /// Returns a mutable reference to a GateIndexVec at the given offset.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn get_mut(&mut self, offset: usize) -> &mut GateIndexVec {
-        &mut self.buffer[self.last_checkpoint + offset]
-    }
-
-    /// Copies elements from one part of the memory to another part of itself.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn copy(&mut self, dst: usize, src: usize, len: usize) {
-        let dst_start = self.last_checkpoint + dst;
-        let src_start = self.last_checkpoint + src;
-        
-        // Collect all source values first
-        let src_values: Vec<GateIndexVec> = self.buffer[src_start..src_start + len].to_vec();
-        
-        // Then copy each value to destination
-        for (i, value) in src_values.iter().enumerate() {
-            self.buffer[dst_start + i] = value.clone();
-        }
     }
 }

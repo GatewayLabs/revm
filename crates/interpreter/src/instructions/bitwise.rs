@@ -733,12 +733,7 @@ mod tests {
     #[test]
     fn test_shift_left() {
         let mut host = DummyHost::new(Env::default());
-        let mut interpreter = Interpreter::new(
-            Contract::default(),
-            u64::MAX,
-            false,
-            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
-        );
+        let mut interpreter = Interpreter::default();
 
         struct TestCase {
             value: U256,

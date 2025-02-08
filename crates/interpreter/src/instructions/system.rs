@@ -37,7 +37,6 @@ pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
             }
 
             interpreter.shared_memory.resize(new_size);
-            interpreter.private_memory.resize(new_size);
         }
 
         primitives::keccak256(interpreter.shared_memory.slice(from, len))

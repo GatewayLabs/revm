@@ -2,44 +2,6 @@ use core::{cmp::min, fmt, ops::Range};
 use primitives::{hex, B256, U256};
 use std::vec::Vec;
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct PrivateRef {
-    tag: [u8; 4],
-    id: [u8; 28],
-}
-
-const PRIVATE_REF_TAG: &[u8; 4] = b"PRIV";
-
-impl PrivateRef {
-    fn from_bytes(bytes: [u8; 32]) -> Self {
-        let (tag, id) = bytes.split_at(4);
-        let mut ptr = PrivateRef {
-            tag: [0u8; 4],
-            id: [0u8; 28],
-        };
-
-        ptr.tag.copy_from_slice(tag);
-        ptr.id.copy_from_slice(id);
-        ptr
-    }
-
-    fn to_bytes(&self) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        out[..4].copy_from_slice(&self.tag);
-        out[4..].copy_from_slice(&self.id);
-        out
-    }
-
-    fn is_private_tag(&self) -> bool {
-        &self.tag == PRIVATE_REF_TAG
-    }
-}
-
-pub fn is_private_tag(bytes: &[u8; 32]) -> bool {
-    return bytes[..4] == PRIVATE_REF_TAG[..];
-}
-
 /// A sequential memory shared between calls, which uses
 /// a `Vec` for internal representation.
 /// A [SharedMemory] instance should always be obtained using

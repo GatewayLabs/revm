@@ -1,13 +1,18 @@
 use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
-    gas, interpreter::StackValueData, Host, InstructionResult, Interpreter, InterpreterResult,
+    gas,
+    interpreter::{
+        private_memory::{is_private_tag, PrivateMemoryValue},
+        StackValueData,
+    },
+    Host, InstructionResult, Interpreter, InterpreterResult,
 };
 use compute::{
     prelude::GateIndexVec,
     uint::{GarbledBoolean, GarbledUint, GarbledUint256},
 };
 use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
-use primitives::{Bytes, U256};
+use primitives::{ruint::Uint, Bytes, U256};
 use specification::hardfork::Spec;
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -278,79 +283,46 @@ fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> 
 }
 
 #[inline]
-fn process_memory_value(
-    interpreter: &mut Interpreter,
-    gate_indices: &GateIndexVec,
-) -> Option<Bytes> {
-    let result = interpreter
-        .circuit_builder
-        .borrow_mut()
-        .compile_and_execute::<256>(gate_indices)
-        .ok()?;
-
-    let value = garbled_uint_to_ruint(&result);
-    println!("process_memory_value - computed value: {:?}", value);
-
-    // Se o valor não é zero, converte para bytes
-    if !value.is_zero() {
-        // Importante: mantém em big-endian e remove zeros à esquerda
-        let bytes = value.to_be_bytes::<32>();
-        let mut start = 0;
-        while start < bytes.len() && bytes[start] == 0 {
-            start += 1;
-        }
-        let output = if start == bytes.len() {
-            Bytes::from(vec![0])
-        } else {
-            let slice = &bytes[start..];
-            Bytes::from(slice.to_vec())
-        };
-        println!("process_memory_value - non-zero output: {:?}", output);
-        Some(output)
-    } else {
-        let output = Bytes::from(vec![0]);
-        println!("process_memory_value - zero output: {:?}", output);
-        Some(output)
-    }
-}
-
-// #[inline]
-#[inline]
 fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
+    // zero gas cost
+    // gas!(interpreter, gas::ZERO);
     pop!(interpreter, offset, len);
+    let len = as_usize_or_fail!(
+        interpreter,
+        len.evaluate(&interpreter.circuit_builder.borrow())
+    );
+    // important: offset must be ignored if len is zeros
+    let mut output = Bytes::default();
+    if len != 0 {
+        let offset = as_usize_or_fail!(
+            interpreter,
+            offset.evaluate(&interpreter.circuit_builder.borrow())
+        );
+        resize_memory!(interpreter, offset, len);
 
-    let len = process_stack_value(interpreter, len);
-    println!("return_inner - len: {}", len);
-
-    if len == 0 {
-        interpreter.instruction_result = instruction_result;
-        interpreter.next_action = crate::InterpreterAction::Return {
-            result: InterpreterResult {
-                output: Bytes::default(),
-                gas: interpreter.gas,
-                result: instruction_result,
-            },
-        };
-        return;
-    }
-
-    let offset = process_stack_value(interpreter, offset);
-    println!("return_inner - offset: {}", offset);
-
-    resize_memory!(interpreter, offset, len);
-
-    let mut output: Bytes = interpreter.shared_memory.slice(offset, len).to_vec().into();
-    println!("return_inner - shared_memory output: {:?}", output);
-
-    if output.is_empty() || output.iter().all(|&x| x == 0) {
-        let gate_indices = interpreter.private_memory.get(offset).clone();
-        if let Some(private_output) = process_memory_value(interpreter, &gate_indices) {
-            output = private_output;
-            println!("return_inner - private_memory output: {:?}", output);
+        let shared_mem = interpreter.shared_memory.slice(offset, len);
+        if is_private_tag(shared_mem) {
+            let mut garbled_result: GarbledUint256 = GarbledUint256::default();
+            match interpreter
+                .private_memory
+                .get(shared_mem.try_into().unwrap())
+            {
+                PrivateMemoryValue::Private(indices) => {
+                    garbled_result = interpreter
+                        .circuit_builder
+                        .borrow()
+                        .compile_and_execute(&indices)
+                        .unwrap();
+                    // Assign the Uint<256, 4> to a local variable
+                    let ruint_value = garbled_uint_to_ruint::<256>(&garbled_result);
+                    output = Into::<Bytes>::into(ruint_value.as_le_slice().to_vec());
+                }
+                _ => todo!(),
+            }
+        } else {
+            output = shared_mem.to_vec().into()
         }
     }
-
-    println!("return_inner - final output: {:?}", output);
     interpreter.instruction_result = instruction_result;
     interpreter.next_action = crate::InterpreterAction::Return {
         result: InterpreterResult {

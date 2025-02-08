@@ -1,8 +1,8 @@
 mod contract;
-pub mod private_memory;
+pub(crate) mod private_memory;
 #[cfg(feature = "serde")]
 pub mod serde;
-mod shared_memory;
+pub(crate) mod shared_memory;
 mod stack;
 
 use bytecode::opcode::OpCode;
@@ -443,7 +443,7 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(self, new_size)
+        resize_memory(&mut self.shared_memory, &mut self.gas, new_size)
     }
 }
 
@@ -492,17 +492,14 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
+pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
-    let current_cost = interpreter.shared_memory.current_expansion_cost();
+    let current_cost = memory.current_expansion_cost();
     let cost = new_cost - current_cost;
-    let success = interpreter.gas.record_cost(cost);
+    let success = gas.record_cost(cost);
     if success {
-        let new_size = (new_words as usize) * 32;
-        // Resize both memories
-        interpreter.shared_memory.resize(new_size);
-        interpreter.private_memory.resize(new_size);
+        memory.resize((new_words as usize) * 32);
     }
     success
 }
