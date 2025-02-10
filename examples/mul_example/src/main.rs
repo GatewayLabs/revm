@@ -1,10 +1,8 @@
 //! Contract execution and private computation demonstration with comprehensive logging
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
-use std::time::Instant;
-
 use database::InMemoryDB;
 use interpreter::{
     instructions::utility::garbled_uint_to_ruint,
@@ -25,11 +23,11 @@ use revm::{
     Evm,
 };
 
-// Runtime bytecode that adds 14 + 20
+// Runtime bytecode that multiply 5 * 5
 const RUNTIME_CODE: &[u8] = &[
-    0x60, 0x14, // PUSH1 0x14 (20 decimal)
-    0x60, 0x0E, // PUSH1 0x0E (14 decimal)
-    0x01, // ADD (add the two values on top of the stack)
+    0x60, 0x05, // PUSH1 0x05 (5 decimal)
+    0x60, 0x05, // PUSH1 0x05 (5 decimal)
+    0x02, // MUL (multiply the two values on top of the stack)
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -185,7 +183,6 @@ fn main() -> anyhow::Result<()> {
                 println!("  Gate Indices: {:?}", gate_indices);
 
                 let start = Instant::now();
-
                 let result: GarbledUint256 = interpreter
                     .circuit_builder
                     .borrow()
@@ -202,7 +199,7 @@ fn main() -> anyhow::Result<()> {
                 println!("Total execution time: {:.2?}", elapsed);
 
                 // Verification against expected result
-                let expected_result = 20 + 14;
+                let expected_result = 5 * 5;
                 println!("  Expected Result: {}", expected_result);
 
                 assert_eq!(
