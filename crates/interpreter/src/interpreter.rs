@@ -404,6 +404,10 @@ impl Interpreter {
     pub fn take_memory(&mut self) -> SharedMemory {
         core::mem::replace(&mut self.shared_memory, EMPTY_SHARED_MEMORY)
     }
+    /// Take memory and replace it with empty memory.
+    pub fn take_private_memory(&mut self) -> PrivateMemory {
+        core::mem::replace(&mut self.private_memory, EMPTY_PRIVATE_MEMORY)
+    }
 
     /// Executes the interpreter until it returns or stops.
     pub fn run<FN, H: Host + ?Sized>(
@@ -443,7 +447,12 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(&mut self.shared_memory, &mut self.gas, new_size)
+        resize_memory(
+            &mut self.shared_memory,
+            &mut self.private_memory,
+            &mut self.gas,
+            new_size,
+        )
     }
 }
 
@@ -492,7 +501,12 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) -> bool {
+pub fn resize_memory(
+    memory: &mut SharedMemory,
+    private_memory: &mut PrivateMemory,
+    gas: &mut Gas,
+    new_size: usize,
+) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
     let current_cost = memory.current_expansion_cost();
@@ -500,6 +514,7 @@ pub fn resize_memory(memory: &mut SharedMemory, gas: &mut Gas, new_size: usize) 
     let success = gas.record_cost(cost);
     if success {
         memory.resize((new_words as usize) * 32);
+        private_memory.resize((new_words as usize) * 32);
     }
     success
 }

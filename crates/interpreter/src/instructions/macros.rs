@@ -105,6 +105,7 @@ macro_rules! resize_memory {
             // Note: we can't use `Interpreter` directly here because of potential double-borrows.
             if !$crate::interpreter::resize_memory(
                 &mut $interp.shared_memory,
+                &mut $interp.private_memory,
                 &mut $interp.gas,
                 new_size,
             ) {

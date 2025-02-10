@@ -117,6 +117,7 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
         let mut private_memory = PrivateMemory::new();
 
         shared_memory.new_context();
+        private_memory.new_context();
 
         // Peek the last stack frame.
         let mut stack_frame = call_stack.last_mut().unwrap();
@@ -148,6 +149,7 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
                 InterpreterAction::Return { result } => {
                     // free memory context.
                     shared_memory.free_context();
+                    private_memory.free_context();
 
                     // pop last frame from the stack and consume it to create FrameResult.
                     let returned_frame = call_stack
@@ -176,6 +178,7 @@ impl<'a, EvmWiringT: EvmWiring> Evm<'a, EvmWiringT> {
             match frame_or_result {
                 FrameOrResult::Frame(frame) => {
                     shared_memory.new_context();
+                    private_memory.new_context();
                     call_stack.push(frame);
                     stack_frame = call_stack.last_mut().unwrap();
                 }
