@@ -207,12 +207,12 @@ mod tests {
 
         interpreter
             .stack
-            .push(StackValueData::Public(op1.clone()))
-            .expect("Failed to push op1 to stack");
-        interpreter
-            .stack
             .push(StackValueData::Public(op2.clone()))
             .expect("Failed to push op2 to stack");
+        interpreter
+            .stack
+            .push(StackValueData::Public(op1.clone()))
+            .expect("Failed to push op1 to stack");
 
         sub(&mut interpreter, &mut host);
 
