@@ -95,8 +95,35 @@ macro_rules! resize_memory {
     };
     ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
         let new_size = $offset.saturating_add($len);
-        let current_size =
-            core::cmp::max($interp.shared_memory.len(), $interp.private_memory.len());
+        if new_size > $interp.shared_memory.len() {
+            #[cfg(feature = "memory_limit")]
+            if $interp.shared_memory.limit_reached(new_size) {
+                $interp.instruction_result = $crate::InstructionResult::MemoryLimitOOG;
+                return $ret;
+            }
+
+            // Note: we can't use `Interpreter` directly here because of potential double-borrows.
+            if !$crate::interpreter::resize_memory(
+                &mut $interp.shared_memory,
+                &mut $interp.private_memory,
+                &mut $interp.gas,
+                new_size,
+            ) {
+                $interp.instruction_result = $crate::InstructionResult::MemoryOOG;
+                return $ret;
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! resize_private_memory {
+    ($interp:expr, $offset:expr, $len:expr) => {
+        $crate::resize_private_memory!($interp, $offset, $len, ())
+    };
+    ($interp:expr, $offset:expr, $len:expr, $ret:expr) => {
+        let new_size = $offset.saturating_add($len);
+        let current_size = $interp.private_memory.len();
         if new_size > current_size {
             #[cfg(feature = "memory_limit")]
             if $interp.shared_memory.limit_reached(new_size) {
@@ -257,7 +284,7 @@ macro_rules! pop_top_gates {
         }
         // SAFETY: Length is checked above.
         let $x1 = unsafe { $interp.stack.top_unsafe() };
-        let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder);
+        let $garbled_x1 = $x1.to_garbled_value(&mut $interp.circuit_builder.borrow_mut());
     };
     ($interp:expr, $x1:ident, $x2:ident, $garbled_x1:ident, $garbled_x2:ident) => {
         if $interp.stack.len() < 2 {
@@ -267,10 +294,12 @@ macro_rules! pop_top_gates {
         // SAFETY: Length is checked above.
         let ($x1, $x2, $garbled_x1, $garbled_x2) = unsafe {
             let (val1, val2) = $interp.stack.pop_top_unsafe();
+            let mut cb = $interp.circuit_builder.borrow_mut();
             let (garbled_val1, garbled_val2) = (
-                val1.to_garbled_value(&mut $interp.circuit_builder),
-                val2.to_garbled_value(&mut $interp.circuit_builder),
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
             );
+            drop(cb);
             (val1, val2, garbled_val1, garbled_val2)
         };
     };
@@ -282,11 +311,13 @@ macro_rules! pop_top_gates {
         // SAFETY: Length is checked above.
         let ($x1, $x2, $x3, $garbled_x1, $garbled_x2, $garbled_x3) = unsafe {
             let (val1, val2, val3) = $interp.stack.pop_top_unsafe();
+            let cb = $interp.circuit_builder.borrow_mut();
             let (garbled_val1, garbled_val2, garbled_val3) = (
-                val1.to_garbled_value(&mut $interp.circuit_builder),
-                val2.to_garbled_value(&mut $interp.circuit_builder),
-                val3.to_garbled_value(&mut $interp.circuit_builder),
+                val1.to_garbled_value(&mut cb),
+                val2.to_garbled_value(&mut cb),
+                val3.to_garbled_value(&mut cb),
             );
+            drop(cb);
             (val1, val2, garbled_val1, garbled_val2, garbled_val3)
         };
     };

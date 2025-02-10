@@ -15,7 +15,7 @@ pub fn pop<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn push0<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, SHANGHAI);
     gas!(interpreter, gas::BASE);
-    if let Err(result) = interpreter.stack.push(U256::ZERO) {
+    if let Err(result) = interpreter.stack.push(U256::ZERO.into()) {
         interpreter.instruction_result = result;
     }
 }
@@ -25,6 +25,7 @@ pub fn push<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _ho
     // SAFETY: In analysis we append trailing bytes to the bytecode so that this is safe to do
     // without bounds checking.
     let ip = interpreter.instruction_pointer;
+    println!("push<{:?}>", N);
     if let Err(result) = interpreter
         .stack
         .push_slice(unsafe { core::slice::from_raw_parts(ip, N) })
@@ -102,8 +103,8 @@ mod test {
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        interp.stack.push(U256::from(10)).unwrap();
-        interp.stack.push(U256::from(20)).unwrap();
+        interp.stack.push(10.into()).unwrap();
+        interp.stack.push(20.into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.stack.pop(), Ok(U256::from(20).into()));
         interp.step(&table, &mut host);
@@ -121,9 +122,9 @@ mod test {
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        interp.stack.push(U256::from(10)).unwrap();
-        interp.stack.push(U256::from(20)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(10.into()).unwrap();
+        interp.stack.push(20.into()).unwrap();
+        interp.stack.push(0.into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.stack.peek(0), Ok(U256::from(20).into()));
         assert_eq!(interp.stack.peek(1), Ok(U256::from(0).into()));
@@ -141,11 +142,11 @@ mod test {
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        interp.stack.push(U256::from(1)).unwrap();
-        interp.stack.push(U256::from(5)).unwrap();
-        interp.stack.push(U256::from(10)).unwrap();
-        interp.stack.push(U256::from(15)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(1.into()).unwrap();
+        interp.stack.push(5.into()).unwrap();
+        interp.stack.push(10.into()).unwrap();
+        interp.stack.push(15.into()).unwrap();
+        interp.stack.push(0.into()).unwrap();
 
         interp.step(&table, &mut host);
         assert_eq!(interp.stack.peek(1), Ok(U256::from(10).into()));

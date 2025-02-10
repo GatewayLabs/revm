@@ -1,24 +1,24 @@
 use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
+use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Ciphertext, Keypair};
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair, Ciphertext};
 
 pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, offset, len_ptr);
     let len = as_usize_or_fail!(interpreter, len_ptr);
     gas_or_fail!(interpreter, gas::keccak256_cost(len as u64));
-    
+
     let hash = if len == 0 {
         KECCAK_EMPTY
     } else {
         let from = as_usize_or_fail!(interpreter, offset);
-        
+
         let new_size = from.saturating_add(len);
         let current_size = core::cmp::max(
             interpreter.shared_memory.len(),
-            interpreter.private_memory.len()
+            interpreter.private_memory.len(),
         );
-        
+
         if new_size > current_size {
             #[cfg(feature = "memory_limit")]
             if interpreter.shared_memory.limit_reached(new_size) {
@@ -30,19 +30,18 @@ pub fn keccak256<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
             let new_cost = crate::gas::memory_gas(new_words);
             let current_cost = interpreter.shared_memory.current_expansion_cost();
             let cost = new_cost - current_cost;
-            
+
             if !interpreter.gas.record_cost(cost) {
                 interpreter.instruction_result = InstructionResult::MemoryOOG;
                 return;
             }
-            
+
             interpreter.shared_memory.resize(new_size);
-            interpreter.private_memory.resize(new_size);
         }
 
         primitives::keccak256(interpreter.shared_memory.slice(from, len))
     };
-    
+
     *len_ptr = hash.into();
 }
 
@@ -60,7 +59,10 @@ pub fn codesize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
     gas!(interpreter, gas::BASE);
     // Inform the optimizer that the bytecode cannot be EOF to remove a bounds check.
     assume!(!interpreter.contract.bytecode.is_eof());
-    push!(interpreter, U256::from(interpreter.contract.bytecode.len()));
+    push!(
+        interpreter,
+        U256::from(interpreter.contract.bytecode.len()).into()
+    );
 }
 
 pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -92,7 +94,12 @@ fn find_value_position(offset: usize) -> Option<(usize, usize)> {
     }
 }
 
-fn decrypt_and_convert_value(input: &[u8], keypair: &Keypair, value_index: usize, value_offset: usize) -> Option<B256> {
+fn decrypt_and_convert_value(
+    input: &[u8],
+    keypair: &Keypair,
+    value_index: usize,
+    value_offset: usize,
+) -> Option<B256> {
     if value_offset >= 32 {
         return None;
     }
@@ -121,14 +128,23 @@ fn extract_value_from_b256(word: B256) -> u64 {
     result
 }
 
-pub fn extract_word(input: &[u8], keypair: Option<&Keypair>, offset: usize) -> (B256, Option<StackValueData>) {
+pub fn extract_word(
+    input: &[u8],
+    keypair: Option<&Keypair>,
+    offset: usize,
+) -> (B256, Option<StackValueData>) {
     if offset < input.len() {
         // Try to decrypt encrypted values
         if let Some((value_index, value_offset)) = find_value_position(offset) {
             if let Some(keypair) = keypair {
-                if let Some(decrypted_word) = decrypt_and_convert_value(input, keypair, value_index, value_offset) {
+                if let Some(decrypted_word) =
+                    decrypt_and_convert_value(input, keypair, value_index, value_offset)
+                {
                     let new_word = extract_value_from_b256(decrypted_word);
-                    return (decrypted_word, Some(StackValueData::from(U256::from(new_word))));
+                    return (
+                        decrypted_word,
+                        Some(StackValueData::from(U256::from(new_word))),
+                    );
                 }
             }
         }
@@ -151,19 +167,22 @@ pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut
     let (word, val) = extract_word(
         &interpreter.contract.input,
         interpreter.encryption_keypair.as_ref(),
-        offset
+        offset,
     );
     *offset_ptr = val.unwrap_or(word.into());
 }
 
 pub fn calldatasize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(interpreter, U256::from(interpreter.contract.input.len()));
+    push!(
+        interpreter,
+        U256::from(interpreter.contract.input.len()).into()
+    );
 }
 
 pub fn callvalue<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(interpreter, interpreter.contract.call_value);
+    push!(interpreter, interpreter.contract.call_value.into());
 }
 
 pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -188,7 +207,7 @@ pub fn returndatasize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
     gas!(interpreter, gas::BASE);
     push!(
         interpreter,
-        U256::from(interpreter.return_data_buffer.len())
+        U256::from(interpreter.return_data_buffer.len()).into()
     );
 }
 
@@ -243,7 +262,7 @@ pub fn returndataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &m
 
 pub fn gas<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::BASE);
-    push!(interpreter, U256::from(interpreter.gas.remaining()));
+    push!(interpreter, U256::from(interpreter.gas.remaining()).into());
 }
 
 pub fn memory_resize(
@@ -288,7 +307,7 @@ mod test {
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.return_data_buffer =
             bytes!("000000000000000400000000000000030000000000000002000000000000000100");
         interp.step(&table, &mut host);
@@ -298,7 +317,7 @@ mod test {
         );
 
         let _ = interp.stack.pop();
-        let _ = interp.stack.push(U256::from(1));
+        let _ = interp.stack.push(U256::from(1).into());
 
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
@@ -308,7 +327,7 @@ mod test {
         );
 
         let _ = interp.stack.pop();
-        let _ = interp.stack.push(U256::from(32));
+        let _ = interp.stack.push(U256::from(32).into());
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
@@ -320,7 +339,7 @@ mod test {
         let _ = interp.stack.pop();
         let _ = interp
             .stack
-            .push(U256::from(interp.return_data_buffer.len()));
+            .push(U256::from(interp.return_data_buffer.len()).into());
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
@@ -353,9 +372,9 @@ mod test {
         interp.shared_memory.resize(256);
 
         // Copying within bounds
-        interp.stack.push(U256::from(32)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(32).into()).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
@@ -364,9 +383,9 @@ mod test {
         );
 
         // Copying with partial out-of-bounds (should zero pad)
-        interp.stack.push(U256::from(64)).unwrap();
-        interp.stack.push(U256::from(16)).unwrap();
-        interp.stack.push(U256::from(64)).unwrap();
+        interp.stack.push(U256::from(64).into()).unwrap();
+        interp.stack.push(U256::from(16).into()).unwrap();
+        interp.stack.push(U256::from(64).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
@@ -376,28 +395,28 @@ mod test {
         assert_eq!(&interp.shared_memory.slice(80, 48), &[0u8; 48]);
 
         // Completely out-of-bounds (should be all zeros)
-        interp.stack.push(U256::from(32)).unwrap();
-        interp.stack.push(U256::from(96)).unwrap();
-        interp.stack.push(U256::from(128)).unwrap();
+        interp.stack.push(U256::from(32).into()).unwrap();
+        interp.stack.push(U256::from(96).into()).unwrap();
+        interp.stack.push(U256::from(128).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(&interp.shared_memory.slice(128, 32), &[0u8; 32]);
 
         // Large offset
-        interp.stack.push(U256::from(32)).unwrap();
-        interp.stack.push(U256::MAX).unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(32).into()).unwrap();
+        interp.stack.push(U256::MAX.into()).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(&interp.shared_memory.slice(0, 32), &[0u8; 32]);
 
         // Offset just before the boundary of the return data buffer size
-        interp.stack.push(U256::from(32)).unwrap();
+        interp.stack.push(U256::from(32).into()).unwrap();
         interp
             .stack
             .push(U256::from(interp.return_data_buffer.len() - 32).into())
             .unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(
@@ -406,12 +425,12 @@ mod test {
         );
 
         // Offset right at the boundary of the return data buffer size
-        interp.stack.push(U256::from(32)).unwrap();
+        interp.stack.push(U256::from(32).into()).unwrap();
         interp
             .stack
             .push(U256::from(interp.return_data_buffer.len()).into())
             .unwrap();
-        interp.stack.push(U256::from(0)).unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.instruction_result, InstructionResult::Continue);
         assert_eq!(&interp.shared_memory.slice(0, 32), &[0u8; 32]);

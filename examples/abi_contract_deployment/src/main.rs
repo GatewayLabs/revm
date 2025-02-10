@@ -3,6 +3,7 @@
 
 use anyhow::{anyhow, bail};
 use database::InMemoryDB;
+use encryption::Keypair;
 use revm::{
     bytecode::opcode,
     primitives::{hex, Bytes, TxKind, U256},
@@ -20,6 +21,9 @@ fn main() -> anyhow::Result<()> {
     let contract_data: serde_json::Value = from_str(&String::from_utf8_lossy(contract_bytecode))?;
     let bytecode = hex::decode(contract_data["bytecode"]["object"].as_str().unwrap())?;
 
+    // generate elgamal keys
+    let keypair = Keypair::new_rand();
+
     // Instantiate EVM
     let mut evm: Evm<'_, EthereumWiring<InMemoryDB, ()>> =
         Evm::<EthereumWiring<InMemoryDB, ()>>::builder()
@@ -28,6 +32,9 @@ fn main() -> anyhow::Result<()> {
             .modify_tx_env(|tx| {
                 tx.transact_to = TxKind::Create;
                 tx.data = Bytes::from(bytecode.clone());
+            })
+            .modify_env(|env| {
+                env.cfg.encryption_keypair = Some(keypair.clone());
             })
             .build();
 
@@ -42,7 +49,6 @@ fn main() -> anyhow::Result<()> {
     };
 
     println!("Deployed contract address: {address}");
-
     // 2. Interact with contract - increment `number`
     let increment_selector = &hex::decode(
         contract_data["methodIdentifiers"]["increment()"]
@@ -90,6 +96,5 @@ fn main() -> anyhow::Result<()> {
 
     // TODO: Implement setNumber function
     // 4. Interact with contract - set `number`
-
     Ok(())
 }

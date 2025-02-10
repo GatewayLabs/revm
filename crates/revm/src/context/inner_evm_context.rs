@@ -3,8 +3,8 @@ use bytecode::{Bytecode, Eof, EOF_MAGIC_BYTES, EOF_MAGIC_HASH};
 use database_interface::Database;
 use derive_where::derive_where;
 use interpreter::{
-    gas, return_ok, AccountLoad, Eip7702CodeLoad, InstructionResult, InterpreterResult,
-    SStoreResult, SelfDestructResult, StateLoad,
+    gas, interpreter::StackValueData, return_ok, AccountLoad, Eip7702CodeLoad, InstructionResult,
+    InterpreterResult, SStoreResult, SelfDestructResult, StateLoad,
 };
 use primitives::{Address, Bytes, HashSet, B256, U256};
 use specification::hardfork::{
@@ -168,7 +168,7 @@ impl<EvmWiringT: EvmWiring> InnerEvmContext<EvmWiringT> {
     ) -> Result<StateLoad<U256>, <EvmWiringT::Database as Database>::Error> {
         self.journaled_state
             .load_account(address, &mut self.db)
-            .map(|acc| acc.map(|a| a.info.balance))
+            .map(|acc| acc.map(|a| a.info.balance.into()))
     }
 
     /// Return account code bytes and if address is cold loaded.

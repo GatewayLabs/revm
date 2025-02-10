@@ -38,7 +38,7 @@ pub fn selfbalance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
-    push!(interpreter, balance.data);
+    push!(interpreter, balance.data.into());
 }
 
 pub fn extcodesize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
@@ -56,7 +56,7 @@ pub fn extcodesize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
         gas!(interpreter, 20);
     }
 
-    push!(interpreter, U256::from(code.len()));
+    push!(interpreter, U256::from(code.len()).into());
 }
 
 /// EIP-1052: EXTCODEHASH opcode
@@ -135,7 +135,7 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     let Some(state_load) = host.sstore(
         interpreter.contract.target_address,
         index.into(),
-        value.into(),
+        value.evaluate(&mut interpreter.circuit_builder.borrow()),
     ) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
@@ -168,7 +168,7 @@ pub fn tstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     host.tstore(
         interpreter.contract.target_address,
         index.into(),
-        value.into(),
+        value.evaluate(&mut interpreter.circuit_builder.borrow()),
     );
 }
 

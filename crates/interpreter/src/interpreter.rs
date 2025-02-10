@@ -1,10 +1,11 @@
 mod contract;
-pub mod private_memory;
+pub(crate) mod private_memory;
 #[cfg(feature = "serde")]
 pub mod serde;
-mod shared_memory;
+pub(crate) mod shared_memory;
 mod stack;
 
+use bytecode::opcode::OpCode;
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
@@ -16,10 +17,12 @@ use crate::{
     Host, InstructionResult, InterpreterAction,
 };
 use bytecode::{Bytecode, Eof};
+use core::cell::RefCell;
 use core::cmp::min;
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Keypair};
+use encryption::Keypair;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// EVM bytecode interpreter.
@@ -65,19 +68,29 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
-    pub circuit_builder: WRK17CircuitBuilder,
+    pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
 }
 
-impl Default for Interpreter {
+impl<'cb> Default for Interpreter {
     fn default() -> Self {
-        Self::new(Contract::default(), u64::MAX, false)
+        Self::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 }
 
 impl Interpreter {
     /// Create new interpreter
-    pub fn new(contract: Contract, gas_limit: u64, is_static: bool) -> Self {
+    pub fn new(
+        contract: Contract,
+        gas_limit: u64,
+        is_static: bool,
+        circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
+    ) -> Self {
         if !contract.bytecode.is_execution_ready() {
             panic!("Contract is not execution ready {:?}", contract.bytecode);
         }
@@ -99,7 +112,7 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
-            circuit_builder: WRK17CircuitBuilder::default(),
+            circuit_builder,
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
         }
@@ -107,7 +120,7 @@ impl Interpreter {
 
     #[inline]
     pub fn reset_circuit_builder(&mut self) {
-        self.circuit_builder = WRK17CircuitBuilder::default();
+        self.circuit_builder = Rc::new(RefCell::new(WRK17CircuitBuilder::default()));
     }
 
     #[inline]
@@ -141,6 +154,7 @@ impl Interpreter {
             ),
             0,
             false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
         )
     }
 
@@ -236,14 +250,14 @@ impl Interpreter {
                 self.gas.record_refund(create_outcome.gas().refunded());
             }
             return_revert!() => {
-                push!(self, U256::ZERO);
+                push!(self, U256::ZERO.into());
                 self.gas.erase_cost(create_outcome.gas().remaining());
             }
             InstructionResult::FatalExternalError => {
                 panic!("Fatal external error in insert_eofcreate_outcome");
             }
             _ => {
-                push!(self, U256::ZERO)
+                push!(self, U256::ZERO.into())
             }
         }
     }
@@ -293,9 +307,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::ZERO
+                        U256::ZERO.into()
                     } else {
-                        U256::from(1)
+                        U256::from(1).into()
                     }
                 );
             }
@@ -305,9 +319,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(1)
+                        U256::from(1).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }
@@ -318,9 +332,9 @@ impl Interpreter {
                 push!(
                     self,
                     if self.is_eof {
-                        U256::from(2)
+                        U256::from(2).into()
                     } else {
-                        U256::ZERO
+                        U256::ZERO.into()
                     }
                 );
             }
@@ -375,6 +389,7 @@ impl Interpreter {
     {
         // Get current opcode.
         let opcode = unsafe { *self.instruction_pointer };
+        println!("#️⃣ {:?}:{:?}", OpCode::name_by_op(opcode), opcode);
 
         // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
         // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction
@@ -388,6 +403,10 @@ impl Interpreter {
     /// Take memory and replace it with empty memory.
     pub fn take_memory(&mut self) -> SharedMemory {
         core::mem::replace(&mut self.shared_memory, EMPTY_SHARED_MEMORY)
+    }
+    /// Take memory and replace it with empty memory.
+    pub fn take_private_memory(&mut self) -> PrivateMemory {
+        core::mem::replace(&mut self.private_memory, EMPTY_PRIVATE_MEMORY)
     }
 
     /// Executes the interpreter until it returns or stops.
@@ -409,12 +428,6 @@ impl Interpreter {
             self.step(instruction_table, host);
         }
 
-        if let Some(encryption_keypair) = &self.encryption_keypair {
-            let ciphertext =
-                ElGamalEncryption::encrypt(&self.return_data_buffer, &encryption_keypair.pubkey());
-            self.return_data_buffer = Bytes::from(ciphertext.to_bytes().to_vec());
-        }
-
         // Return next action if it is some.
         if self.next_action.is_some() {
             return core::mem::take(&mut self.next_action);
@@ -434,7 +447,12 @@ impl Interpreter {
     #[inline]
     #[must_use]
     pub fn resize_memory(&mut self, new_size: usize) -> bool {
-        resize_memory(self, new_size)
+        resize_memory(
+            &mut self.shared_memory,
+            &mut self.private_memory,
+            &mut self.gas,
+            new_size,
+        )
     }
 }
 
@@ -483,17 +501,20 @@ impl InterpreterResult {
 #[inline(never)]
 #[cold]
 #[must_use]
-pub fn resize_memory(interpreter: &mut Interpreter, new_size: usize) -> bool {
+pub fn resize_memory(
+    memory: &mut SharedMemory,
+    private_memory: &mut PrivateMemory,
+    gas: &mut Gas,
+    new_size: usize,
+) -> bool {
     let new_words = num_words(new_size as u64);
     let new_cost = gas::memory_gas(new_words);
-    let current_cost = interpreter.shared_memory.current_expansion_cost();
+    let current_cost = memory.current_expansion_cost();
     let cost = new_cost - current_cost;
-    let success = interpreter.gas.record_cost(cost);
+    let success = gas.record_cost(cost);
     if success {
-        let new_size = (new_words as usize) * 32;
-        // Resize both memories
-        interpreter.shared_memory.resize(new_size);
-        interpreter.private_memory.resize(new_size);
+        memory.resize((new_words as usize) * 32);
+        private_memory.resize((new_words as usize) * 32);
     }
     success
 }
@@ -507,7 +528,12 @@ mod tests {
 
     #[test]
     fn object_safety() {
-        let mut interp = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interp = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         let mut host = crate::DummyHost::<DefaultEthereumWiring>::default();
         let table: &InstructionTable<DummyHost<DefaultEthereumWiring>> =

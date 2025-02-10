@@ -14,7 +14,9 @@ pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.lt(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.lt(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -23,7 +25,9 @@ pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.gt(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.gt(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -46,7 +50,9 @@ pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.eq(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.eq(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -57,21 +63,24 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     let zero_bits = vec![false; 256];
     let zero = compute::uint::GarbledUint::<256>::new(zero_bits);
-    let zero_gates = interpreter.circuit_builder.input(&zero);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let zero_gates = cb.input(&zero);
 
     let result = match op1 {
         StackValueData::Public(value) => {
-            let garbled_gates =
-                StackValueData::Public(*value).to_garbled_value(&mut interpreter.circuit_builder);
-            let eq_result = interpreter.circuit_builder.eq(&garbled_gates, &zero_gates);
+            let garbled_gates = StackValueData::Public(*value).to_garbled_value(&mut cb);
+            let eq_result = cb.eq(&garbled_gates, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
         StackValueData::Private(garbled) => {
-            let eq_result = interpreter.circuit_builder.eq(&garbled, &zero_gates);
+            let eq_result = cb.eq(&garbled, &zero_gates);
             StackValueData::Private(GateIndexVec::from(eq_result))
         }
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to garbled value"),
+        StackValueData::Encrypted(_ciphertext) => {
+            panic!("Cannot convert encrypted value to garbled value")
+        }
     };
+    drop(cb);
 
     *op1 = result;
 }
@@ -80,7 +89,9 @@ pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.and(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.and(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -89,7 +100,9 @@ pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.or(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.or(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -98,7 +111,9 @@ pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.xor(&garbled_op1, &garbled_op2);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.xor(&garbled_op1, &garbled_op2);
+    drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -107,7 +122,9 @@ pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, op1, garbled_op1);
 
-    let result = interpreter.circuit_builder.not(&garbled_op1);
+    let mut cb = interpreter.circuit_builder.borrow_mut();
+    let result = cb.not(&garbled_op1);
+    drop(cb);
 
     *op1 = StackValueData::Private(GateIndexVec::from(result));
 }
@@ -177,10 +194,14 @@ pub fn sar<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
 
 #[cfg(test)]
 mod tests {
+    use core::cell::RefCell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::instructions::bitwise::{byte, sar, shl, shr};
     use crate::instructions::utility::garbled_uint_to_bool;
     use crate::{Contract, DummyHost, Interpreter};
+    use compute::prelude::WRK17CircuitBuilder;
     use compute::uint::GarbledUint256;
     use primitives::{uint, U256};
     use specification::hardfork::LatestSpec;
@@ -190,7 +211,12 @@ mod tests {
         let contract = Contract::default();
         let gas_limit = 10_000_000;
         let is_static = false;
-        Interpreter::new(contract, gas_limit, is_static)
+        Interpreter::new(
+            contract,
+            gas_limit,
+            is_static,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 
     fn generate_host() -> DummyHost<
@@ -235,11 +261,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             lt(&mut interpreter, &mut host);
@@ -248,6 +274,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -297,11 +324,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             gt(&mut interpreter, &mut host);
@@ -310,6 +337,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -359,11 +387,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             eq(&mut interpreter, &mut host);
@@ -372,6 +400,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -417,7 +446,7 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.value)
+                .push(test.value.into())
                 .expect("Failed to push value to stack");
 
             println!("Value: {:?}", test.value);
@@ -430,6 +459,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -471,7 +501,7 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             not(&mut interpreter, &mut host);
@@ -480,6 +510,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -523,11 +554,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitand(&mut interpreter, &mut host);
@@ -536,6 +567,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -590,11 +622,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitor(&mut interpreter, &mut host);
@@ -603,6 +635,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -666,11 +699,11 @@ mod tests {
         for test in test_cases.iter() {
             interpreter
                 .stack
-                .push(test.op2)
+                .push(test.op2.into())
                 .expect("Failed to push op2 to stack");
             interpreter
                 .stack
-                .push(test.op1)
+                .push(test.op1.into())
                 .expect("Failed to push op1 to stack");
 
             bitxor(&mut interpreter, &mut host);
@@ -679,6 +712,7 @@ mod tests {
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
+                .borrow()
                 .compile_and_execute(&output_indices.into())
                 .unwrap();
 
@@ -699,7 +733,7 @@ mod tests {
     #[test]
     fn test_shift_left() {
         let mut host = DummyHost::new(Env::default());
-        let mut interpreter = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interpreter = Interpreter::default();
 
         struct TestCase {
             value: U256,
@@ -769,8 +803,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             shl::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -780,7 +814,12 @@ mod tests {
     #[test]
     fn test_logical_shift_right() {
         let mut host = DummyHost::new(Env::default());
-        let mut interpreter = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interpreter = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         struct TestCase {
             value: U256,
@@ -850,8 +889,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             shr::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -861,7 +900,12 @@ mod tests {
     #[test]
     fn test_arithmetic_shift_right() {
         let mut host = DummyHost::new(Env::default());
-        let mut interpreter = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interpreter = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         struct TestCase {
             value: U256,
@@ -956,8 +1000,8 @@ mod tests {
 
         for test in test_cases {
             host.clear();
-            push!(interpreter, test.value);
-            push!(interpreter, test.shift);
+            push!(interpreter, test.value.into());
+            push!(interpreter, test.shift.into());
             sar::<DummyHost<DefaultEthereumWiring>, LatestSpec>(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into());
@@ -973,7 +1017,12 @@ mod tests {
         }
 
         let mut host = DummyHost::<DefaultEthereumWiring>::new(Env::default());
-        let mut interpreter = Interpreter::new(Contract::default(), u64::MAX, false);
+        let mut interpreter = Interpreter::new(
+            Contract::default(),
+            u64::MAX,
+            false,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        );
 
         let input_value = U256::from(0x1234567890abcdef1234567890abcdef_u128);
         let test_cases = (0..32)
@@ -991,8 +1040,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         for test in test_cases.iter() {
-            push!(interpreter, test.input);
-            push!(interpreter, U256::from(test.index));
+            push!(interpreter, test.input.into());
+            push!(interpreter, U256::from(test.index).into());
             byte(&mut interpreter, &mut host);
             pop!(interpreter, res);
             assert_eq!(res, test.expected.into(), "Failed at index: {}", test.index);

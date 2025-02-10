@@ -1,42 +1,40 @@
 //! Contract execution and private computation demonstration with comprehensive logging
 
-use std::time::Instant;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
+use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
 use database::InMemoryDB;
+use interpreter::{
+    instructions::utility::garbled_uint_to_ruint,
+    interpreter::{Interpreter, PrivateMemory, StackValueData},
+    table::make_instruction_table,
+    Contract, DummyHost, SharedMemory,
+};
+use revm::specification::hardfork::CancunSpec;
+use revm::wiring::DefaultEthereumWiring;
 use revm::{
-    primitives::{hex, Bytes, TxKind, U256, Address, B256, keccak256},
+    bytecode::Bytecode,
+    primitives::{hex, keccak256, Address, Bytes, TxKind, B256, U256},
     state::AccountInfo,
     wiring::{
         result::{ExecutionResult, Output},
         EthereumWiring,
     },
     Evm,
-    bytecode::Bytecode,
 };
-use compute::prelude::GarbledUint256;
-use interpreter::{
-    instructions::utility::garbled_uint_to_ruint, 
-    interpreter::{Interpreter, PrivateMemory, StackValueData}, 
-    table::make_instruction_table, 
-    Contract, 
-    DummyHost, 
-    SharedMemory
-};
-use revm::specification::hardfork::CancunSpec;
-use revm::wiring::DefaultEthereumWiring;
 
 // Runtime bytecode that subtract 13 from 75
 const RUNTIME_CODE: &[u8] = &[
-    0x60, 0x4b,       // PUSH1 0x4b (75 decimal)
-    0x60, 0x0d,       // PUSH1 0x0d (13 decimal)
-    0x03,             // SUB (subtract the two values on top of the stack)
+    0x60, 0x4b, // PUSH1 0x4b (75 decimal)
+    0x60, 0x0d, // PUSH1 0x0d (13 decimal)
+    0x03, // SUB (subtract the two values on top of the stack)
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
     println!("Bytecode Details:");
     println!("  Total Length: {}", bytecode.len());
     println!("  Hex Representation: {}", hex::encode(bytecode));
-    
+
     println!("  Bytecode Breakdown:");
     for (i, &byte) in bytecode.iter().enumerate() {
         println!("    Byte {}: 0x{:02x} (Decimal: {})", i, byte, byte);
@@ -50,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     // Sender and contract configuration
     let sender = Address::from_slice(&[0x20; 20]);
     let contract_address = Address::from_slice(&[0x42; 20]); // Fixed contract address
-    
+
     // Transaction parameters
     let gas_limit = 100_000u64;
     let gas_price = U256::from(100u64);
@@ -59,7 +57,7 @@ fn main() -> anyhow::Result<()> {
 
     // Create in-memory database
     let mut db = InMemoryDB::default();
-    
+
     // Insert sender account
     db.insert_account_info(
         sender,
@@ -82,7 +80,7 @@ fn main() -> anyhow::Result<()> {
         },
     );
 
-    // Create EVM instance 
+    // Create EVM instance
     let mut evm: Evm<'_, EthereumWiring<InMemoryDB, ()>> =
         Evm::<EthereumWiring<InMemoryDB, ()>>::builder()
             .with_db(db)
@@ -106,33 +104,40 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n--- EVM Execution Attempt ---");
     let result = evm.transact_commit()?;
-    
+
     // Comprehensive EVM Execution Logging
     println!("EVM Execution Result:");
     println!("  Status: {:#?}", result);
-    
+
     // Check EVM Execution Success
     match result {
-        ExecutionResult::Success { reason, gas_used, output, .. } => {
+        ExecutionResult::Success {
+            reason,
+            gas_used,
+            output,
+            ..
+        } => {
             println!("  Execution Reason: {:?}", reason);
             println!("  Gas Used: {}", gas_used);
-            
+
             // Verify output or additional checks if needed
             match output {
                 Output::Call(data) => {
                     println!("  Call Output: {:?}", data);
-                },
+                }
                 Output::Create(address, _) => {
                     println!("  Created Contract Address: {:?}", address);
                 }
             }
-        },
-        ExecutionResult::Revert { gas_used, output, .. } => {
+        }
+        ExecutionResult::Revert {
+            gas_used, output, ..
+        } => {
             println!("  Execution Reverted");
             println!("  Gas Used: {}", gas_used);
             println!("  Revert Output: {:?}", output);
             return Err(anyhow::anyhow!("EVM Execution Reverted"));
-        },
+        }
         ExecutionResult::Halt { reason, gas_used } => {
             println!("  Execution Halted");
             println!("  Reason: {:?}", reason);
@@ -153,58 +158,61 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Create interpreter
-    let mut interpreter = Interpreter::new(contract, u64::MAX, false);
+    let mut interpreter = Interpreter::new(
+        contract,
+        u64::MAX,
+        false,
+        Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+    );
 
     // Create host and instruction table
     let mut host = DummyHost::<DefaultEthereumWiring>::default();
     let table = &make_instruction_table::<DummyHost<DefaultEthereumWiring>, CancunSpec>();
 
     // Execute bytecode
-    let _action = interpreter.run(
-        SharedMemory::new(),
-        PrivateMemory::new(),
-        table,
-        &mut host,
-    );
+    let _action = interpreter.run(SharedMemory::new(), PrivateMemory::new(), table, &mut host);
 
     // Verify and convert private result to public
     println!("\n--- Private Computation Verification ---");
     match interpreter.stack().peek(0) {
         Ok(value) => {
             println!("  Top of Stack Value: {:?}", value);
-            
+
             if let StackValueData::Private(gate_indices) = value {
                 println!("  Detected Private Value");
                 println!("  Gate Indices: {:?}", gate_indices);
-                
+
                 let start = Instant::now();
-                let result: GarbledUint256 = interpreter.circuit_builder.compile_and_execute(&gate_indices)
+                let result: GarbledUint256 = interpreter
+                    .circuit_builder
+                    .borrow()
+                    .compile_and_execute(&gate_indices)
                     .map_err(|e| {
                         println!("  Circuit Compilation Error: {:?}", e);
                         e
                     })?;
-                
+
                 let public_result = garbled_uint_to_ruint(&result);
-                
+
                 println!("  Private Computation Result: {:?}", public_result);
                 let elapsed = start.elapsed();
                 println!("Total execution time: {:.2?}", elapsed);
-                
+
                 // Verification against expected result
                 let expected_result = 75 - 13;
                 println!("  Expected Result: {}", expected_result);
-                
+
                 assert_eq!(
-                    public_result.to_string(), 
-                    expected_result.to_string(), 
+                    public_result.to_string(),
+                    expected_result.to_string(),
                     "Private computation result does not match expected value"
                 );
-                
+
                 println!("  ✅ Private Computation Verification Successful");
             } else {
                 println!("  Value is already public: {:?}", value);
             }
-        },
+        }
         Err(e) => {
             println!("  Error accessing stack: {:?}", e);
             return Err(anyhow::anyhow!("Failed to access interpreter stack"));

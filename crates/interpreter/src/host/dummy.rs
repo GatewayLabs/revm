@@ -1,4 +1,4 @@
-use crate::{Host, SStoreResult, SelfDestructResult};
+use crate::{interpreter::StackValueData, Host, SStoreResult, SelfDestructResult};
 use derive_where::derive_where;
 use primitives::{hash_map::Entry, Address, Bytes, HashMap, Log, B256, KECCAK_EMPTY, U256};
 use std::vec::Vec;
@@ -88,10 +88,10 @@ where
     #[inline]
     fn sload(&mut self, _address: Address, index: U256) -> Option<StateLoad<U256>> {
         match self.storage.entry(index) {
-            Entry::Occupied(entry) => Some(StateLoad::new(*entry.get(), false)),
+            Entry::Occupied(entry) => Some(StateLoad::new((*entry.get()).into(), false)),
             Entry::Vacant(entry) => {
                 entry.insert(U256::ZERO);
-                Some(StateLoad::new(U256::ZERO, true))
+                Some(StateLoad::new(U256::ZERO.into(), true))
             }
         }
     }
@@ -103,12 +103,12 @@ where
         index: U256,
         value: U256,
     ) -> Option<StateLoad<SStoreResult>> {
-        let present = self.storage.insert(index, value);
+        let present = self.storage.insert(index, value.clone().into());
         Some(StateLoad {
             data: SStoreResult {
-                original_value: U256::ZERO,
-                present_value: present.unwrap_or(U256::ZERO),
-                new_value: value,
+                original_value: U256::ZERO.into(),
+                present_value: present.unwrap_or(U256::ZERO).into(),
+                new_value: value.into(),
             },
             is_cold: present.is_none(),
         })
@@ -124,7 +124,7 @@ where
 
     #[inline]
     fn tstore(&mut self, _address: Address, index: U256, value: U256) {
-        self.transient_storage.insert(index, value);
+        self.transient_storage.insert(index, value.into());
     }
 
     #[inline]

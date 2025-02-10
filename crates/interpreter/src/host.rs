@@ -1,3 +1,4 @@
+use compute::prelude::WRK17CircuitBuilder;
 use core::ops::{Deref, DerefMut};
 use primitives::{Address, Bytes, Log, B256, U256};
 

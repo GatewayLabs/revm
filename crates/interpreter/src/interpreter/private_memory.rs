@@ -1,6 +1,125 @@
-use compute::{prelude::{GateIndexVec, WRK17CircuitBuilder}, uint::GarbledUint};
+use compute::operations::circuits::builder::GateIndex;
+use compute::prelude::GateIndexVec;
+use compute::uint::GarbledUint256;
 use core::fmt;
+use encryption::Ciphertext;
+use primitives::ruint::Uint;
+use primitives::U256;
+use std::hash::{Hash, Hasher};
 use std::vec::Vec;
+
+#[repr(C)]
+#[derive(Default, Copy, Clone)]
+pub struct PrivateRef {
+    tag: [u8; 4],
+    index: [u8; 28],
+}
+
+const DEFAULT_PRIVATE_REF_TAG: &[u8; 4] = b"PRIV";
+
+/// Encode a PrivateRef as U256 representation
+impl Into<Uint<256, 4>> for PrivateRef {
+    fn into(self) -> U256 {
+        let mut bytes = [0u8; 32];
+        bytes[..4].copy_from_slice(&DEFAULT_PRIVATE_REF_TAG[..]);
+        bytes[4..].copy_from_slice(&self.index);
+        U256::from_le_bytes(bytes)
+    }
+}
+
+#[inline]
+pub(crate) fn is_private_tag(bytes: &[u8]) -> bool {
+    bytes.len() >= 4 && bytes[..4] == DEFAULT_PRIVATE_REF_TAG[..]
+}
+
+impl TryFrom<&[u8]> for PrivateRef {
+    type Error = ();
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if !is_private_tag(value) {
+            return Err(());
+        }
+
+        let mut tag: [u8; 4] = [0; 4];
+        tag.copy_from_slice(&value[..4]);
+
+        let mut index: [u8; 28] = [0; 28];
+        index.copy_from_slice(&value[4..]);
+
+        Ok(PrivateRef { tag, index })
+    }
+}
+
+/// Decode PrivateRef struct from U256 representation
+impl TryFrom<Uint<256, 4>> for PrivateRef {
+    type Error = ();
+
+    fn try_from(value: U256) -> Result<Self, Self::Error> {
+        let bytes: [u8; 32] = value.to_le_bytes();
+        if !is_private_tag(&bytes) {
+            return Err(());
+        }
+
+        let mut tag: [u8; 4] = [0; 4];
+        tag.copy_from_slice(&bytes[..4]);
+
+        let mut index = [0u8; 28];
+        index.copy_from_slice(&bytes[4..]);
+
+        Ok(PrivateRef { tag, index })
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Eq, Clone, Debug)]
+pub enum PrivateMemoryValue {
+    Private(GateIndexVec),
+    Encrypted(Ciphertext),
+}
+
+impl std::hash::Hash for PrivateMemoryValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PrivateMemoryValue::Private(gate_index_vec) => {
+                for gate_index in gate_index_vec.iter() {
+                    gate_index.hash(state);
+                }
+            }
+            PrivateMemoryValue::Encrypted(ciphertext) => {
+                ciphertext.to_bytes().hash(state);
+            }
+        }
+    }
+}
+
+impl std::cmp::PartialEq for PrivateMemoryValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Private(l0), Self::Private(r0)) => l0 == r0,
+            (Self::Encrypted(l0), Self::Encrypted(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
+impl PrivateMemoryValue {
+    pub fn copy(&self) -> Self {
+        match self {
+            Self::Private(gate_index_vec) => Self::Private(gate_index_vec.clone()),
+            Self::Encrypted(ciphertext) => Self::Encrypted(ciphertext.clone()),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        match self {
+            PrivateMemoryValue::Private(val) => {
+                // GateIndexVec aliases Vec<GateIndex: u32>
+                val.iter().flat_map(|&x| x.to_le_bytes().to_vec()).collect()
+            }
+            _ => todo!(),
+        }
+    }
+}
 
 /// A sequential memory for private data, which uses
 /// a `Vec` for internal representation.
@@ -10,26 +129,20 @@ use std::vec::Vec;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PrivateMemory {
     /// The underlying buffer.
-    buffer: Vec<GateIndexVec>,
+    data: Vec<PrivateMemoryValue>,
     /// Memory checkpoints for each depth.
-    /// Invariant: these are always in bounds of `data`.
     checkpoints: Vec<usize>,
     /// Invariant: equals `self.checkpoints.last()`
     last_checkpoint: usize,
-    /// Memory limit. See [`CfgEnv`](wiring::default::CfgEnv).
-    #[cfg(feature = "memory_limit")]
-    memory_limit: u64,
 }
 
 /// Empty private memory.
 ///
 /// Used as placeholder inside Interpreter when it is not running.
 pub const EMPTY_PRIVATE_MEMORY: PrivateMemory = PrivateMemory {
-    buffer: Vec::new(),
+    data: Vec::new(),
     checkpoints: Vec::new(),
     last_checkpoint: 0,
-    #[cfg(feature = "memory_limit")]
-    memory_limit: u64::MAX,
 };
 
 impl fmt::Debug for PrivateMemory {
@@ -53,46 +166,17 @@ impl PrivateMemory {
     /// The default initial capacity is 4KiB.
     #[inline]
     pub fn new() -> Self {
-        Self::with_capacity(4 * 1024)
-    }
-
-    /// Creates a new memory instance that can be shared between calls with the given `capacity`.
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            buffer: Vec::with_capacity(capacity),
+            data: Vec::with_capacity(4096),
             checkpoints: Vec::with_capacity(32),
             last_checkpoint: 0,
-            #[cfg(feature = "memory_limit")]
-            memory_limit: u64::MAX,
         }
-    }
-
-    /// Creates a new memory instance that can be shared between calls,
-    /// with `memory_limit` as upper bound for allocation size.
-    ///
-    /// The default initial capacity is 4KiB.
-    #[cfg(feature = "memory_limit")]
-    #[inline]
-    pub fn new_with_memory_limit(memory_limit: u64) -> Self {
-        Self {
-            memory_limit,
-            ..Self::new()
-        }
-    }
-
-    /// Returns `true` if the `new_size` for the current context memory will
-    /// make the shared buffer length exceed the `memory_limit`.
-    #[cfg(feature = "memory_limit")]
-    #[inline]
-    pub fn limit_reached(&self, new_size: usize) -> bool {
-        self.last_checkpoint.saturating_add(new_size) as u64 > self.memory_limit
     }
 
     /// Prepares the private memory for a new context.
     #[inline]
     pub fn new_context(&mut self) {
-        let new_checkpoint = self.buffer.len();
+        let new_checkpoint = self.data.len();
         self.checkpoints.push(new_checkpoint);
         self.last_checkpoint = new_checkpoint;
     }
@@ -102,15 +186,47 @@ impl PrivateMemory {
     pub fn free_context(&mut self) {
         if let Some(old_checkpoint) = self.checkpoints.pop() {
             self.last_checkpoint = self.checkpoints.last().cloned().unwrap_or_default();
-            // SAFETY: buffer length is less than or equal `old_checkpoint`
-            unsafe { self.buffer.set_len(old_checkpoint) };
+            self.data.truncate(old_checkpoint);
         }
+    }
+
+    /// Resizes the memory in-place so that `len` is equal to `new_len`.
+    #[inline]
+    pub fn resize(&mut self, new_size: usize) {
+        self.data.resize(
+            self.last_checkpoint + new_size,
+            PrivateMemoryValue::Private(GateIndexVec::new(vec![0])),
+        );
+    }
+
+    #[inline]
+    pub fn push(&mut self, value: PrivateMemoryValue) -> PrivateRef {
+        self.data.push(value);
+
+        let id = self.data.len() - 1;
+
+        let mut index: [u8; 28] = [0; 28];
+        index[..id.to_le_bytes().len()].copy_from_slice(&id.to_le_bytes());
+
+        PrivateRef {
+            index,
+            tag: DEFAULT_PRIVATE_REF_TAG.clone(),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, private_ref: PrivateRef) -> PrivateMemoryValue {
+        let mut index_bytes = [0u8; 8];
+        index_bytes.copy_from_slice(&private_ref.index[..8]);
+        let index = usize::from_le_bytes(index_bytes);
+
+        self.data.get(index).unwrap().clone()
     }
 
     /// Returns the length of the current memory range.
     #[inline]
     pub fn len(&self) -> usize {
-        self.buffer.len() - self.last_checkpoint
+        self.data.len() - self.last_checkpoint
     }
 
     /// Returns `true` if the current memory range is empty.
@@ -118,56 +234,100 @@ impl PrivateMemory {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+}
 
-    /// Resizes the memory in-place so that `len` is equal to `new_len`.
-    #[inline]
-    pub fn resize(&mut self, new_size: usize) {
-        let target_size = self.last_checkpoint + new_size;
-        
-        let mut local_builder = WRK17CircuitBuilder::default();
-        let gate_vec: GarbledUint<1> = GarbledUint::from(false);
-        let zero_value = local_builder.input(&gate_vec);
-        
-        self.buffer.resize_with(target_size, || zero_value.clone());
-    }
+#[cfg(test)]
+mod test {
+    use crate::{
+        instructions::utility::ruint_to_garbled_uint,
+        interpreter::{private_memory::PrivateMemoryValue, PrivateMemory},
+    };
+    use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
+    use primitives::U256;
 
-    /// Returns a reference to a GateIndexVec at the given offset.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn get(&self, offset: usize) -> &GateIndexVec {
-        let actual_offset = self.last_checkpoint + offset;
-        &self.buffer[actual_offset]
-    }
+    #[test]
+    fn test_private_memory_push_and_get() {
+        let mut memory = PrivateMemory::new();
 
-    /// Returns a mutable reference to a GateIndexVec at the given offset.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn get_mut(&mut self, offset: usize) -> &mut GateIndexVec {
-        &mut self.buffer[self.last_checkpoint + offset]
-    }
+        let mut circuit_builder = WRK17CircuitBuilder::default();
+        let garbled_uint = ruint_to_garbled_uint(&U256::from(128_u8));
+        let gate_index_vec = circuit_builder.input(&garbled_uint);
 
-    /// Copies elements from one part of the memory to another part of itself.
-    ///
-    /// # Panics
-    ///
-    /// Panics on out of bounds.
-    #[inline]
-    pub fn copy(&mut self, dst: usize, src: usize, len: usize) {
-        let dst_start = self.last_checkpoint + dst;
-        let src_start = self.last_checkpoint + src;
-        
-        // Collect all source values first
-        let src_values: Vec<GateIndexVec> = self.buffer[src_start..src_start + len].to_vec();
-        
-        // Then copy each value to destination
-        for (i, value) in src_values.iter().enumerate() {
-            self.buffer[dst_start + i] = value.clone();
+        let private_ref1 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+
+        match memory.get(private_ref1) {
+            PrivateMemoryValue::Encrypted(_) => panic!(""),
+            PrivateMemoryValue::Private(value) => {
+                assert_eq!(value.len(), gate_index_vec.len());
+                for i in 0..value.len() {
+                    assert_eq!(value[i], gate_index_vec[i]);
+                }
+            }
         }
+    }
+
+    #[test]
+    fn test_private_memory_len_and_is_empty() {
+        let mut memory = PrivateMemory::new();
+        assert_eq!(memory.len(), 0);
+        assert!(memory.is_empty());
+
+        let mut circuit_builder = WRK17CircuitBuilder::default();
+        let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
+
+        memory.push(PrivateMemoryValue::Private(gate_index_vec));
+
+        assert_eq!(memory.len(), 1);
+        assert!(!memory.is_empty());
+    }
+
+    #[test]
+    fn test_private_memory_default() {
+        let memory = PrivateMemory::default();
+        assert_eq!(memory.len(), 0);
+        assert!(memory.is_empty());
+    }
+
+    #[test]
+    fn test_private_memory_copy() {
+        let mut memory = PrivateMemory::new();
+
+        let mut circuit_builder = WRK17CircuitBuilder::default();
+        let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
+
+        memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+
+        let copied_memory = memory.clone();
+
+        assert_eq!(memory.len(), copied_memory.len());
+        for i in 0..memory.len() {
+            let mut index_bytes = [0u8; 8];
+            let vec = memory.data[i].to_vec();
+            index_bytes.copy_from_slice(&vec[..8]);
+            let _private_ref = usize::from_le_bytes(index_bytes);
+            assert_eq!(memory.data[i], copied_memory.data[i]);
+        }
+    }
+
+    #[test]
+    fn test_private_memory_context_management() {
+        let mut memory = PrivateMemory::new();
+
+        let mut circuit_builder = WRK17CircuitBuilder::default();
+        let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
+
+        memory.new_context();
+        let private_ref1 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        assert_eq!(memory.len(), 1);
+
+        memory.new_context();
+        let private_ref2 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        assert_eq!(memory.len(), 1);
+
+        memory.free_context();
+        assert_eq!(memory.len(), 1);
+
+        memory.free_context();
+        assert_eq!(memory.len(), 0);
     }
 }

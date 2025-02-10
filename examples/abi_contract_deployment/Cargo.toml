@@ -24,6 +24,8 @@ all = "warn"
 [dependencies]
 revm = { workspace = true, features = ["std", "serde"] }
 database.workspace = true
+encryption = { workspace = true }
+inspector.workspace = true
 
 # mics
 anyhow = "1.0.89"

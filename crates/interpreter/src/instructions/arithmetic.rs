@@ -1,10 +1,5 @@
-
 use super::i256::{i256_div, i256_mod};
-use crate::{
-    gas,
-    interpreter::StackValueData,
-    Host, Interpreter,
-};
+use crate::{gas, interpreter::StackValueData, Host, Interpreter};
 use compute::prelude::CircuitExecutor;
 use primitives::U256;
 use specification::hardfork::Spec;
@@ -14,25 +9,23 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
 
     // creates the sum circuit using the circuit builder
-    let result = interpreter.circuit_builder.add(&garbled_op1, &garbled_op2);
-
-    // TODO: REMOVE THIS
-    let v1 = op1.to_public_value(&mut interpreter.circuit_builder);
-    let v2 = op2.to_public_value(&mut interpreter.circuit_builder);
+    let result = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .add(&garbled_op1, &garbled_op2);
 
     // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(result);
-
-    // TODO: REMOVE THIS
-    let public = op2.to_public_value(&mut interpreter.circuit_builder);
-    println!("[ADD] {:?} + {:?} = {:?}", v1, v2, public);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.mul(&garbled_op1, &garbled_op2);
+    let result = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .mul(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result);
 }
@@ -41,7 +34,10 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.sub(&garbled_op2, &garbled_op1);
+    let result = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .sub(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result);
 }
@@ -50,7 +46,10 @@ pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
-    let result = interpreter.circuit_builder.div(&garbled_op1, &garbled_op2);
+    let result = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .div(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result);
 }
@@ -66,8 +65,11 @@ pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
-    
-    let result = interpreter.circuit_builder.rem(&garbled_op1, &garbled_op2);
+
+    let result = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .rem(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result);
 }
@@ -137,16 +139,24 @@ pub fn signextend<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H
 
 #[cfg(test)]
 mod tests {
+    use core::cell::RefCell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::{instructions::utility::garbled_uint_to_ruint, Contract, DummyHost};
-    use compute::uint::GarbledUint256;
+    use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
     use primitives::ruint::Uint;
 
     fn generate_interpreter() -> Interpreter {
         let contract = Contract::default();
         let gas_limit = 10_000_000;
         let is_static = false;
-        Interpreter::new(contract, gas_limit, is_static)
+        Interpreter::new(
+            contract,
+            gas_limit,
+            is_static,
+            Rc::new(RefCell::new(WRK17CircuitBuilder::default())),
+        )
     }
 
     fn generate_host() -> DummyHost<
@@ -166,11 +176,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         add(&mut interpreter, &mut host);
@@ -179,6 +189,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&output_indices.into())
             .unwrap();
         let expected_result = Uint::<256, 4>::from(18u64);
@@ -196,12 +207,12 @@ mod tests {
 
         interpreter
             .stack
-            .push(op1.clone())
-            .expect("Failed to push op1 to stack");
+            .push(StackValueData::Public(op2.clone()))
+            .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op2.clone())
-            .expect("Failed to push op2 to stack");
+            .push(StackValueData::Public(op1.clone()))
+            .expect("Failed to push op1 to stack");
 
         sub(&mut interpreter, &mut host);
 
@@ -211,6 +222,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&output_indices.into())
             .unwrap();
 
@@ -229,11 +241,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function
@@ -246,6 +258,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&output_indices.into())
             .unwrap();
 
@@ -264,11 +277,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function
@@ -281,6 +294,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&output_indices.into())
             .unwrap();
 
@@ -299,11 +313,11 @@ mod tests {
         // Push values to the interpreter stack
         interpreter
             .stack
-            .push(op2.clone())
+            .push(op2.clone().into())
             .expect("Failed to push op2 to stack");
         interpreter
             .stack
-            .push(op1.clone())
+            .push(op1.clone().into())
             .expect("Failed to push op1 to stack");
 
         // Call the add function
@@ -316,6 +330,7 @@ mod tests {
 
         let result: GarbledUint256 = interpreter
             .circuit_builder
+            .borrow()
             .compile_and_execute(&output_indices.into())
             .unwrap();
 

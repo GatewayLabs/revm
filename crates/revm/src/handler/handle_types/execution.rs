@@ -3,7 +3,9 @@ use crate::{
     FrameOrResult, FrameResult,
 };
 use interpreter::{
-    interpreter::PrivateMemory, table::InstructionTables, CallInputs, CallOutcome, CreateInputs, CreateOutcome, EOFCreateInputs, InterpreterAction, InterpreterResult, NewFrameAction, SharedMemory
+    interpreter::PrivateMemory, table::InstructionTables, CallInputs, CallOutcome, CreateInputs,
+    CreateOutcome, EOFCreateInputs, InterpreterAction, InterpreterResult, NewFrameAction,
+    SharedMemory,
 };
 use specification::hardfork::Spec;
 use std::{boxed::Box, sync::Arc};
@@ -168,7 +170,13 @@ impl<'a, EvmWiringT: EvmWiring> ExecutionHandler<'a, EvmWiringT> {
         instruction_tables: &InstructionTables<'_, Context<EvmWiringT>>,
         context: &mut Context<EvmWiringT>,
     ) -> EVMResultGeneric<InterpreterAction, EvmWiringT> {
-        (self.execute_frame)(frame, shared_memory, private_memory, instruction_tables, context)
+        (self.execute_frame)(
+            frame,
+            shared_memory,
+            private_memory,
+            instruction_tables,
+            context,
+        )
     }
 
     /// Handle call return, depending on instruction result gas will be reimbursed or not.
