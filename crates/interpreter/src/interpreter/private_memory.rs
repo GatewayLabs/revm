@@ -147,7 +147,15 @@ impl PrivateMemory {
     /// The default initial capacity is 4KiB.
     #[inline]
     pub fn new() -> Self {
-        Self::default()
+        Self::with_capacity(4 * 1024) // from evmone
+    }
+
+    /// Creates a new memory instance that can be shared between calls with the given `capacity`.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+        }
     }
 
     #[inline]
