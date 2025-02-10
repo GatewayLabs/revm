@@ -6,6 +6,7 @@ pub(crate) mod shared_memory;
 mod stack;
 
 use bytecode::opcode::OpCode;
+use compute::prelude::GateIndexVec;
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
@@ -70,6 +71,10 @@ pub struct Interpreter {
     pub next_action: InterpreterAction,
     pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
+    /// Next program counter for private branching
+    pub next_pc: Option<GateIndexVec>,
+    /// Flag indicating if we need to handle a private jump
+    pub handle_private_jump: bool,
 }
 
 impl<'cb> Default for Interpreter {
@@ -115,6 +120,8 @@ impl Interpreter {
             circuit_builder,
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
+            next_pc: None,
+            handle_private_jump: false,
         }
     }
 

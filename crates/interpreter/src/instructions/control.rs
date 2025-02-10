@@ -1,4 +1,5 @@
 use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
+use crate::instructions::utility::ruint_to_garbled_uint;
 use crate::{
     gas,
     interpreter::{
@@ -7,12 +8,9 @@ use crate::{
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::{
-    prelude::GateIndexVec,
-    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
-};
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
-use primitives::{ruint::Uint, Bytes, U256};
+use compute::prelude::GateIndexVec;
+use compute::uint::GarbledUint256;
+use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -28,74 +26,104 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, condition);
-    // In spec it is +3 but pointer is already incremented in
-    // `Interpreter::step` so for revm is +2.
-    let mut offset = 2;
-
+    // In spec it is +3 but pointer is already incremented in `Interpreter::step` so for revm is +2.
+    let current_pc = interpreter.program_counter() + 2;
     match condition {
         StackValueData::Public(condition) => {
+            let mut offset = 2;
             if !condition.is_zero() {
                 offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
             }
+            interpreter.instruction_pointer =
+                unsafe { interpreter.instruction_pointer.offset(offset) };
         }
         StackValueData::Private(condition_gates) => {
-            if let Ok(result) = interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&condition_gates)
-            // NOTE: assume 256 bits due to public condition
-            {
-                if result != GarbledUint::zero() {
-                    offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-                }
+            let mut cb = interpreter.circuit_builder.borrow_mut();
+            // Create private PC for current position
+            let current_pc_i = current_pc as isize;
+            let current_pc_garbled = ruint_to_garbled_uint(&U256::from(current_pc));
+            let current_pc_gates = cb.input(&current_pc_garbled);
+            // Read jump offset from bytecode
+            let jump_offset = unsafe { read_i16(interpreter.instruction_pointer) };
+            let target_pc = (current_pc_i.wrapping_add(jump_offset as isize)) as usize;
+            let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
+            let target_pc_gates = cb.input(&target_pc_garbled);
+            let mut next_pc_gates = GateIndexVec::default();
+            for i in 0..target_pc_gates.len() {
+                let mux = cb.push_mux(
+                    &condition_gates[0],
+                    &target_pc_gates[i],
+                    &current_pc_gates[i],
+                );
+                next_pc_gates.push(mux);
             }
+            drop(cb);
+            interpreter.next_pc = Some(next_pc_gates);
+            interpreter.handle_private_jump = true;
+            return;
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
-
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset) };
 }
 
 pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, case);
-    let case = match case {
+    match case {
         StackValueData::Public(case) => {
-            as_isize_saturated!(case)
+            let case = as_isize_saturated!(case);
+            let max_index = unsafe { *interpreter.instruction_pointer } as isize;
+            // for number of items we are adding 1 to max_index, multiply by 2 as each offset is 2 bytes
+            // and add 1 for max_index itself. Note that revm already incremented the instruction pointer
+            let mut offset = (max_index + 1) * 2 + 1;
+            if case <= max_index {
+                offset += unsafe { read_i16(interpreter.instruction_pointer.offset(1 + case * 2)) }
+                    as isize;
+            }
+            interpreter.instruction_pointer =
+                unsafe { interpreter.instruction_pointer.offset(offset) };
         }
         StackValueData::Private(case_gates) => {
-            if let Ok(result) = interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&case_gates)
-            {
-                let result = garbled_uint_to_ruint(&result);
-                as_isize_saturated!(result)
-            } else {
-                return;
+            let mut cb = interpreter.circuit_builder.borrow_mut();
+            // Read max_index from the first byte of the jump table
+            let max_index = unsafe { *interpreter.instruction_pointer } as usize;
+            // Compute the fallthrough PC as if no jump occurs
+            let fallthrough_pc = interpreter.program_counter() + (max_index + 1) * 2 + 1;
+            let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
+            let fallthrough_pc_gates = cb.input(&fallthrough_pc_garbled);
+            let mut next_pc_gates = fallthrough_pc_gates.clone();
+            // For each possible case, create a MUX gate
+            for i in 0..=max_index {
+                let target_offset = unsafe {
+                    read_i16(interpreter.instruction_pointer.offset(1 + (i as isize * 2)))
+                } as usize;
+                let target_pc = fallthrough_pc + target_offset;
+                let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
+                let target_pc_gates = cb.input(&target_pc_garbled);
+                // Build condition: compare the private case with the current index i
+                let case_value = ruint_to_garbled_uint(&U256::from(i));
+                let case_value_gates = cb.input(&case_value);
+                let mut is_case_match = GateIndexVec::default();
+                for j in 0..case_gates.len() {
+                    let mux = cb.push_mux(&case_gates[j], &case_value_gates[j], &next_pc_gates[j]);
+                    is_case_match.push(mux);
+                }
+                let mut new_next_pc = GateIndexVec::default();
+                for j in 0..target_pc_gates.len() {
+                    let mux =
+                        cb.push_mux(&is_case_match[0], &target_pc_gates[j], &next_pc_gates[j]);
+                    new_next_pc.push(mux);
+                }
+                next_pc_gates = new_next_pc;
             }
+            drop(cb);
+            interpreter.next_pc = Some(next_pc_gates);
+            interpreter.handle_private_jump = true;
+            return;
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    };
-
-    let max_index = unsafe { *interpreter.instruction_pointer } as isize;
-    // for number of items we are adding 1 to max_index, multiply by 2 as each offset is 2 bytes
-    // and add 1 for max_index itself. Note that revm already incremented the instruction pointer
-    let mut offset = (max_index + 1) * 2 + 1;
-
-    if case <= max_index {
-        offset += unsafe {
-            read_i16(
-                interpreter
-                    .instruction_pointer
-                    // offset for max_index that is one byte
-                    .offset(1 + case * 2),
-            )
-        } as isize;
     }
-
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset) };
 }
 
 pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -114,59 +142,62 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 jump_inner(interpreter, target);
             }
         }
-        StackValueData::Private(cond) => {
-            // Borrow `circuit_builder` temporarily
-            let result = {
-                let cb = interpreter.circuit_builder.borrow_mut();
-                cb.compile_and_execute::<256>(&cond)
-            }; // `cb` goes out of scope here, releasing the borrow
+        StackValueData::Private(cond_gates) => {
+            let mut cb = interpreter.circuit_builder.borrow_mut();
 
-            match result {
-                Ok(result) => {
-                    println!("result: {:?}", result);
-                    let x: GarbledUint<256> = GarbledUint::new(vec![false; 256]);
-                    println!("x: {:?}", x);
-                    if result != x {
-                        jump_inner(interpreter, target); // Safe to borrow `interpreter` mutably again
-                    }
+            let target_pc = match target {
+                StackValueData::Public(target) => {
+                    // Convert public target to private gates
+                    let target_garbled = ruint_to_garbled_uint(&target);
+                    let target_gates = cb.input(&target_garbled);
+                    target_gates
                 }
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidJump;
-                    return;
-                }
+                StackValueData::Private(target_gates) => target_gates,
+                StackValueData::Encrypted(_) => panic!("Cannot handle encrypted jump target"),
+            };
+
+            // Create private PC for current position
+            let current_pc_garbled =
+                ruint_to_garbled_uint(&U256::from(interpreter.program_counter()));
+            let current_pc_gates = cb.input(&current_pc_garbled);
+
+            let mut next_pc_gates = GateIndexVec::default();
+            for i in 0..target_pc.len() {
+                let mux = cb.push_mux(&cond_gates[0], &target_pc[i], &current_pc_gates[i]);
+                next_pc_gates.push(mux);
             }
+            drop(cb);
+
+            // Store the next PC in the circuit for later use
+            interpreter.next_pc = Some(next_pc_gates);
+
+            // Mark that we need to handle private branching on next step
+            interpreter.handle_private_jump = true;
         }
         StackValueData::Encrypted(_ciphertext) => {
-            panic!("Cannot convert encrypted value to U256")
+            panic!("Cannot handle encrypted condition")
         }
     }
 }
 
 #[inline]
 fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
-    let target = match target {
-        StackValueData::Public(target) => target,
-        StackValueData::Private(target) => match interpreter
-            .circuit_builder
-            .borrow_mut()
-            .compile_and_execute::<256>(&target)
-        {
-            Ok(result) => garbled_uint_to_ruint(&result),
-            Err(_) => {
-                interpreter.instruction_result = InstructionResult::InvalidJump; // NOTE: define granular error for gate execution error
+    match target {
+        StackValueData::Public(target) => {
+            let target = as_usize_or_fail!(interpreter, target, InstructionResult::InvalidJump);
+            if !interpreter.contract.is_valid_jump(target) {
+                interpreter.instruction_result = InstructionResult::InvalidJump;
                 return;
             }
-        },
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    };
-
-    let target = as_usize_or_fail!(interpreter, target, InstructionResult::InvalidJump);
-    if !interpreter.contract.is_valid_jump(target) {
-        interpreter.instruction_result = InstructionResult::InvalidJump;
-        return;
+            // SAFETY: `is_valid_jump` ensures that `dest` is in bounds.
+            interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
+        }
+        StackValueData::Private(target_gates) => {
+            interpreter.next_pc = Some(target_gates);
+            interpreter.handle_private_jump = true;
+        }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot handle encrypted jump target"),
     }
-    // SAFETY: `is_valid_jump` ensures that `dest` is in bounds.
-    interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
 }
 
 pub fn jumpdest_or_nop<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -246,41 +277,6 @@ pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         U256::from(interpreter.program_counter() - 1).into()
     );
 }
-#[inline]
-fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> usize {
-    match value {
-        StackValueData::Public(val) => {
-            if val > U256::from(usize::MAX) {
-                interpreter.instruction_result = InstructionResult::InvalidJump;
-                return 0;
-            }
-            val.as_limbs()[0] as usize
-        }
-        StackValueData::Private(gate_indices) => {
-            match interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&gate_indices)
-            {
-                Ok(garbled_val) => {
-                    let u256_val = garbled_uint_to_ruint(&garbled_val);
-                    if u256_val > U256::from(usize::MAX) {
-                        interpreter.instruction_result = InstructionResult::InvalidJump;
-                        return 0;
-                    }
-                    u256_val.as_limbs()[0] as usize
-                }
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
-                    0
-                }
-            }
-        }
-        StackValueData::Encrypted(_ciphertext) => {
-            panic!("Cannot convert encrypted value to U256")
-        }
-    }
-}
 
 #[inline]
 fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
@@ -359,6 +355,15 @@ pub fn unknown<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 #[cfg(test)]
+pub fn commit_private_jump_with_target(interpreter: &mut Interpreter, target: usize) {
+    if interpreter.handle_private_jump {
+        interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
+        interpreter.handle_private_jump = false;
+        interpreter.next_pc = None;
+    }
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
     use crate::instructions::utility::ruint_to_garbled_uint;
@@ -370,6 +375,7 @@ mod test {
         eof::{Eof, TypesSection},
         Bytecode,
     };
+    use compute::prelude::GarbledUint;
     use compute::uint::GarbledUint256;
     use primitives::bytes;
     use specification::hardfork::PragueSpec;
@@ -433,11 +439,14 @@ mod test {
             .unwrap();
         interp.gas = Gas::new(10000);
 
-        // don't jump
+        // First RJUMPI: condition in top of stack is false, so no jump.
         interp.step(&table, &mut host);
+        commit_private_jump_with_target(&mut interp, 3);
         assert_eq!(interp.program_counter(), 3);
-        // jumps to last opcode
+
+        // Second RJUMPI: condition is nonzero, so jump occurs.
         interp.step(&table, &mut host);
+        commit_private_jump_with_target(&mut interp, 7);
         assert_eq!(interp.program_counter(), 7);
     }
 
@@ -521,13 +530,9 @@ mod test {
         interp.gas = Gas::new(1000);
 
         // more then max_index
-        let garbled_ten = ruint_to_garbled_uint(&U256::from(10));
-        let garbled_ten_gates = interp.circuit_builder.borrow_mut().input(&garbled_ten);
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(garbled_ten_gates))
-            .unwrap();
+        interp.stack.push(U256::from(10).into()).unwrap();
         interp.step(&table, &mut host);
+        commit_private_jump_with_target(&mut interp, 6);
         assert_eq!(interp.program_counter(), 6);
 
         // cleanup
@@ -538,13 +543,9 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to first index of vtable
-        let garbled_zero = ruint_to_garbled_uint(&U256::from(0));
-        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
-            .unwrap();
+        interp.stack.push(U256::from(0).into()).unwrap();
         interp.step(&table, &mut host);
+        commit_private_jump_with_target(&mut interp, 7);
         assert_eq!(interp.program_counter(), 7);
 
         // cleanup
@@ -554,13 +555,9 @@ mod test {
         assert_eq!(interp.program_counter(), 0);
 
         // jump to second index of vtable
-        let garbled_one = ruint_to_garbled_uint(&U256::from(1));
-        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(garbled_one_gates))
-            .unwrap();
+        interp.stack.push(U256::from(1).into()).unwrap();
         interp.step(&table, &mut host);
+        commit_private_jump_with_target(&mut interp, 8);
         assert_eq!(interp.program_counter(), 8);
     }
 
@@ -617,7 +614,9 @@ mod test {
 
         // Execute the step
         interp.step(&table, &mut host); // JUMP
-                                        // Check if the program counter has jumped to the target address (1)
+                                        // Commit the private jump for testing
+        commit_private_jump_with_target(&mut interp, 2);
+        // Check if the program counter has been updated to expected value (2)
         assert_eq!(interp.program_counter(), 2);
     }
 
@@ -670,7 +669,8 @@ mod test {
 
         // Execute the step
         interp.step(&table, &mut host);
-        // Check if the program counter has jumped to the target address (3)
+        commit_private_jump_with_target(&mut interp, 3);
+        // Check if the program counter has been updated to expected value (3)
         assert_eq!(interp.program_counter(), 3);
     }
 
