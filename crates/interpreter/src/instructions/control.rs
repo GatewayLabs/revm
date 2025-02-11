@@ -8,7 +8,7 @@ use crate::{
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::prelude::{CircuitExecutor, GateIndexVec};
+use compute::prelude::CircuitExecutor;
 use compute::uint::GarbledUint256;
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
@@ -50,7 +50,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             let target_pc_gates = cb.input(&target_pc_garbled);
 
             // Check if different than zero
-            let zero = ruint_to_garbled_uint(&U256::from(0));
+            let zero = GarbledUint256::zero();
             let zero_gates = cb.input(&zero);
             let condition = cb.ne(&condition_gates, &zero_gates);
             let next_pc_gates = cb.mux(&condition, &target_pc_gates, &current_pc_gates);
@@ -72,8 +72,7 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         StackValueData::Public(case) => {
             let case = as_isize_saturated!(case);
             let max_index = unsafe { *interpreter.instruction_pointer } as isize;
-            // for number of items we are adding 1 to max_index, multiply by 2 as each offset is 2 bytes
-            // and add 1 for max_index itself. Note that revm already incremented the instruction pointer
+
             let mut offset = (max_index + 1) * 2 + 1;
             if case <= max_index {
                 offset += unsafe { read_i16(interpreter.instruction_pointer.offset(1 + case * 2)) }
@@ -84,14 +83,13 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         }
         StackValueData::Private(case_gates) => {
             let mut cb = interpreter.circuit_builder.borrow_mut();
-            // Read max_index from the first byte of the jump table
             let max_index = unsafe { *interpreter.instruction_pointer } as usize;
-            // Compute the fallthrough PC as if no jump occurs
             let fallthrough_pc = interpreter.program_counter() + (max_index + 1) * 2 + 1;
             let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
             let fallthrough_pc_gates = cb.input(&fallthrough_pc_garbled);
+
             let mut next_pc_gates = fallthrough_pc_gates.clone();
-            // For each possible case, create a MUX gate
+
             for i in 0..=max_index {
                 let target_offset = unsafe {
                     read_i16(interpreter.instruction_pointer.offset(1 + (i as isize * 2)))
@@ -99,21 +97,10 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 let target_pc = fallthrough_pc + target_offset;
                 let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
                 let target_pc_gates = cb.input(&target_pc_garbled);
-                // Build condition: compare the private case with the current index i
                 let case_value = ruint_to_garbled_uint(&U256::from(i));
                 let case_value_gates = cb.input(&case_value);
-                let mut is_case_match = GateIndexVec::default();
-                for j in 0..case_gates.len() {
-                    let mux = cb.push_mux(&case_gates[j], &case_value_gates[j], &next_pc_gates[j]);
-                    is_case_match.push(mux);
-                }
-                let mut new_next_pc = GateIndexVec::default();
-                for j in 0..target_pc_gates.len() {
-                    let mux =
-                        cb.push_mux(&is_case_match[0], &target_pc_gates[j], &next_pc_gates[j]);
-                    new_next_pc.push(mux);
-                }
-                next_pc_gates = new_next_pc;
+                let eq_condition = cb.eq(&case_gates, &case_value_gates);
+                next_pc_gates = cb.mux(&eq_condition, &target_pc_gates, &next_pc_gates);
             }
             drop(cb);
             interpreter.next_pc = Some(next_pc_gates);
@@ -159,19 +146,13 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 ruint_to_garbled_uint(&U256::from(interpreter.program_counter()));
             let current_pc_gates = cb.input(&current_pc_garbled);
 
-            let zero = ruint_to_garbled_uint(&U256::from(0));
+            let zero = GarbledUint256::zero();
             let zero_gates = cb.input(&zero);
-
             let condition = cb.ne(&cond_gates, &zero_gates);
-
             let next_pc_gates = cb.mux(&condition, &target_pc, &current_pc_gates);
 
             drop(cb);
-
-            // Store the next PC in the circuit for later use
             interpreter.next_pc = Some(next_pc_gates);
-
-            // Mark that we need to handle private branching on next step
             interpreter.handle_private_jump = true;
         }
         StackValueData::Encrypted(_ciphertext) => {
