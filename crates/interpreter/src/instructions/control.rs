@@ -8,6 +8,7 @@ use crate::{
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
+use compute::operations::circuits::types::GateIndexVec;
 use compute::prelude::CircuitExecutor;
 use compute::uint::GarbledUint256;
 use primitives::{Bytes, U256};
@@ -17,8 +18,6 @@ pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::BASE);
     let offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-    // In spec it is +3 but pointer is already incremented in
-    // `Interpreter::step` so for revm is +2.
     interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset + 2) };
 }
 
@@ -26,7 +25,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, condition);
-    // In spec it is +3 but pointer is already incremented in `Interpreter::step` so for revm is +2.
+
     let current_pc = interpreter.program_counter() + 2;
     match condition {
         StackValueData::Public(condition) => {
@@ -38,27 +37,13 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 unsafe { interpreter.instruction_pointer.offset(offset) };
         }
         StackValueData::Private(condition_gates) => {
-            let mut cb = interpreter.circuit_builder.borrow_mut();
-            // Create private PC for current position
-            let current_pc_i = current_pc as isize;
-            let current_pc_garbled = ruint_to_garbled_uint(&U256::from(current_pc));
-            let current_pc_gates = cb.input(&current_pc_garbled);
-            // Read jump offset from bytecode
             let jump_offset = unsafe { read_i16(interpreter.instruction_pointer) };
-            let target_pc = (current_pc_i.wrapping_add(jump_offset as isize)) as usize;
-            let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
-            let target_pc_gates = cb.input(&target_pc_garbled);
+            let target_pc = (current_pc as isize + jump_offset as isize) as usize;
 
-            // Check if different than zero
-            let zero = GarbledUint256::zero();
-            let zero_gates = cb.input(&zero);
-            let condition = cb.ne(&condition_gates, &zero_gates);
-            let next_pc_gates = cb.mux(&condition, &target_pc_gates, &current_pc_gates);
+            let next_pc_gates =
+                interpreter.setup_private_branch(&condition_gates, target_pc, current_pc);
 
-            drop(cb);
-            interpreter.next_pc = Some(next_pc_gates);
-            interpreter.handle_private_jump = true;
-            return;
+            interpreter.handle_private_branch(next_pc_gates);
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
@@ -793,5 +778,37 @@ mod test {
 
         // stack overflow
         assert_eq!(interp.instruction_result, InstructionResult::StackOverflow);
+    }
+}
+
+impl Interpreter {
+    /// Sets up private branching logic and returns the next PC gates
+    fn setup_private_branch(
+        &self,
+        condition_gates: &GateIndexVec,
+        target_pc: usize,
+        fallthrough_pc: usize,
+    ) -> GateIndexVec {
+        let mut cb = self.circuit_builder.borrow_mut();
+
+        // Create PC gates for both paths using the already-borrowed cb
+        let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
+        let target_pc_gates = cb.input(&target_pc_garbled);
+        let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
+        let fallthrough_pc_gates = cb.input(&fallthrough_pc_garbled);
+
+        // Create zero gates for comparison using cb
+        let zero = GarbledUint256::zero();
+        let zero_gates = cb.input(&zero);
+
+        // Compare condition with zero and select path
+        let condition = cb.ne(condition_gates, &zero_gates);
+        cb.mux(&condition, &target_pc_gates, &fallthrough_pc_gates)
+    }
+
+    /// Handles the result of a private branch operation
+    fn handle_private_branch(&mut self, next_pc_gates: GateIndexVec) {
+        self.next_pc = Some(next_pc_gates);
+        self.handle_private_jump = true;
     }
 }
