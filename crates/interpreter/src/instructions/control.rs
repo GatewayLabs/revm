@@ -8,7 +8,7 @@ use crate::{
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::prelude::GateIndexVec;
+use compute::prelude::{CircuitExecutor, GateIndexVec};
 use compute::uint::GarbledUint256;
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
@@ -48,15 +48,13 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             let target_pc = (current_pc_i.wrapping_add(jump_offset as isize)) as usize;
             let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
             let target_pc_gates = cb.input(&target_pc_garbled);
-            let mut next_pc_gates = GateIndexVec::default();
-            for i in 0..target_pc_gates.len() {
-                let mux = cb.push_mux(
-                    &condition_gates[0],
-                    &target_pc_gates[i],
-                    &current_pc_gates[i],
-                );
-                next_pc_gates.push(mux);
-            }
+
+            // Check if different than zero
+            let zero = ruint_to_garbled_uint(&U256::from(0));
+            let zero_gates = cb.input(&zero);
+            let condition = cb.ne(&condition_gates, &zero_gates);
+            let next_pc_gates = cb.mux(&condition, &target_pc_gates, &current_pc_gates);
+
             drop(cb);
             interpreter.next_pc = Some(next_pc_gates);
             interpreter.handle_private_jump = true;
@@ -161,11 +159,13 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 ruint_to_garbled_uint(&U256::from(interpreter.program_counter()));
             let current_pc_gates = cb.input(&current_pc_garbled);
 
-            let mut next_pc_gates = GateIndexVec::default();
-            for i in 0..target_pc.len() {
-                let mux = cb.push_mux(&cond_gates[0], &target_pc[i], &current_pc_gates[i]);
-                next_pc_gates.push(mux);
-            }
+            let zero = ruint_to_garbled_uint(&U256::from(0));
+            let zero_gates = cb.input(&zero);
+
+            let condition = cb.ne(&cond_gates, &zero_gates);
+
+            let next_pc_gates = cb.mux(&condition, &target_pc, &current_pc_gates);
+
             drop(cb);
 
             // Store the next PC in the circuit for later use
