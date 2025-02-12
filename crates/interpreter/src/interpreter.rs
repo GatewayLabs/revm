@@ -5,8 +5,10 @@ pub mod serde;
 pub(crate) mod shared_memory;
 mod stack;
 
+use crate::instructions::utility::ruint_to_garbled_uint;
 use bytecode::opcode::OpCode;
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
+use compute::uint::GarbledUint256;
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
@@ -70,7 +72,10 @@ pub struct Interpreter {
     pub next_action: InterpreterAction,
     pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
+    /// Mapping from program counter to its circuit representation
     pub program_count_mapping: HashMap<usize, GateIndexVec>,
+    /// Current program counter wire in the circuit
+    pub current_pc_wire: Option<GateIndexVec>,
 }
 
 impl<'cb> Default for Interpreter {
@@ -117,6 +122,7 @@ impl Interpreter {
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
             program_count_mapping: HashMap::new(),
+            current_pc_wire: None,
         }
     }
 
@@ -426,9 +432,32 @@ impl Interpreter {
         self.shared_memory = shared_memory;
         self.private_memory = private_memory;
 
+        // Initialize PC wire with starting PC (0)
+        let initial_pc_gates = self.create_pc_wire(0);
+        self.current_pc_wire = Some(initial_pc_gates.clone());
+        self.update_pc_mapping(0, initial_pc_gates);
+
         // main loop
         while self.instruction_result == InstructionResult::Continue {
+            // Get current PC before step
+            let current_pc = self.program_counter();
+
+            // Validate PC circuit representation
+            self.validate_pc_circuit(current_pc);
+
+            // Execute the step
             self.step(instruction_table, host);
+
+            // After step, ensure PC wire is updated
+            if let Some(next_pc_gates) = self.program_count_mapping.get(&self.program_counter()) {
+                self.current_pc_wire = Some(next_pc_gates.clone());
+            } else {
+                // If no explicit jump occurred, create wire for next sequential PC
+                let next_pc = self.program_counter();
+                let next_pc_gates = self.create_pc_wire(next_pc);
+                self.current_pc_wire = Some(next_pc_gates.clone());
+                self.update_pc_mapping(next_pc, next_pc_gates);
+            }
         }
 
         // Return next action if it is some.
@@ -444,6 +473,35 @@ impl Interpreter {
                 gas: self.gas,
             },
         }
+    }
+
+    /// Validates that the PC circuit representation is consistent with the actual PC
+    pub(crate) fn validate_pc_circuit(&self, current_pc: usize) {
+        if let Some(pc_gates) = &self.current_pc_wire {
+            // Evaluate the current PC wire
+            let circuit_pc =
+                StackValueData::Private(pc_gates.clone()).evaluate(&self.circuit_builder.borrow());
+
+            // Convert to usize for comparison
+            let circuit_pc = circuit_pc.as_limbs()[0] as usize;
+
+            // Verify PC consistency
+            if circuit_pc != current_pc {
+                panic!("PC circuit representation inconsistent with actual PC: circuit_pc={}, actual_pc={}", 
+                    circuit_pc, current_pc);
+            }
+        }
+    }
+
+    /// Creates a circuit wire for a PC value
+    pub(crate) fn create_pc_wire(&mut self, pc: usize) -> GateIndexVec {
+        let pc_garbled = ruint_to_garbled_uint(&U256::from(pc));
+        self.circuit_builder.borrow_mut().input(&pc_garbled)
+    }
+
+    /// Updates the PC mapping with new gates
+    pub(crate) fn update_pc_mapping(&mut self, current_pc: usize, next_pc_gates: GateIndexVec) {
+        self.program_count_mapping.insert(current_pc, next_pc_gates);
     }
 
     /// Resize the memory to the new size. Returns whether the gas was enough to resize the memory.

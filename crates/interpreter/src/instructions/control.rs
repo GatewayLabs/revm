@@ -17,8 +17,18 @@ use specification::hardfork::Spec;
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::BASE);
+
+    let current_pc = interpreter.program_counter();
     let offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset + 2) };
+    let new_pc = current_pc + 2 + (offset as usize);
+
+    // Create circuit wire for the new PC and update mappings
+    let next_pc_gates = interpreter.create_pc_wire(new_pc);
+    interpreter.update_pc_mapping(current_pc, next_pc_gates.clone());
+    interpreter.current_pc_wire = Some(next_pc_gates);
+
+    // Update actual PC
+    interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(new_pc) };
 }
 
 pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -26,24 +36,34 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, condition);
 
-    let current_pc = interpreter.program_counter() + 2;
+    let base_pc = interpreter.program_counter() + 2;
+    let jump_offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
+    let jump_dest = (base_pc as isize + jump_offset) as usize;
+
     match condition {
-        StackValueData::Public(condition) => {
-            let mut offset = 2;
-            if !condition.is_zero() {
-                offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-            }
-            interpreter.instruction_pointer =
-                unsafe { interpreter.instruction_pointer.offset(offset) };
+        StackValueData::Public(cond) => {
+            let new_pc = if !cond.is_zero() { jump_dest } else { base_pc };
+            // Create circuit wire for the new PC
+            let next_pc_gates = interpreter.create_pc_wire(new_pc);
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, next_pc_gates);
+            interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(new_pc) };
         }
-        StackValueData::Private(condition_gates) => {
-            let jump_offset = unsafe { read_i16(interpreter.instruction_pointer) };
-            let target_pc = (current_pc as isize + jump_offset as isize) as usize;
+        StackValueData::Private(cond_gates) => {
+            // Create circuit wires for both possible next PCs
+            let base_pc_gates = interpreter.create_pc_wire(base_pc);
+            let jump_dest_gates = interpreter.create_pc_wire(jump_dest);
 
-            let next_pc_gates =
-                interpreter.setup_private_branch(&condition_gates, target_pc, current_pc);
+            // Use MUX to select between jump destination and fallthrough
+            let next_pc_gates = interpreter.circuit_builder.borrow_mut().mux(
+                &cond_gates[0],
+                &jump_dest_gates,
+                &base_pc_gates,
+            );
 
-            interpreter.handle_private_branch(next_pc_gates);
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, next_pc_gates);
+            interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(base_pc) };
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
@@ -63,34 +83,55 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 offset += unsafe { read_i16(interpreter.instruction_pointer.offset(1 + case * 2)) }
                     as isize;
             }
+            let new_pc = (interpreter.program_counter() as isize + offset) as usize;
+
+            // Create circuit wire for the new PC and update mappings
+            let next_pc_gates = interpreter.create_pc_wire(new_pc);
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, next_pc_gates.clone());
+            interpreter.current_pc_wire = Some(next_pc_gates);
+
             interpreter.instruction_pointer =
                 unsafe { interpreter.instruction_pointer.offset(offset) };
         }
         StackValueData::Private(case_gates) => {
-            let mut cb = interpreter.circuit_builder.borrow_mut();
+            let instruction_pc = interpreter.program_counter() - 1;
             let max_index = unsafe { *interpreter.instruction_pointer } as usize;
-            let fallthrough_pc = interpreter.program_counter() + (max_index + 1) * 2 + 1;
-            let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
-            let fallthrough_pc_gates = cb.input(&fallthrough_pc_garbled);
 
-            let mut next_pc_gates = fallthrough_pc_gates.clone();
+            let fallthrough_pc = instruction_pc + 2 + 2 * (max_index + 1);
+            let mut next_pc_gates = interpreter.create_pc_wire(fallthrough_pc);
 
+            // Build MUX chain for each possible case
             for i in 0..=max_index {
-                let target_offset = unsafe {
-                    read_i16(interpreter.instruction_pointer.offset(1 + (i as isize * 2)))
-                } as usize;
-                let target_pc = fallthrough_pc + target_offset;
-                let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
-                let target_pc_gates = cb.input(&target_pc_garbled);
+                let offset =
+                    unsafe { read_i16(interpreter.instruction_pointer.add(1 + i * 2)) } as isize;
+                let target_pc = (fallthrough_pc as isize + offset) as usize;
+
+                // Create circuit wire for this case's target PC
+                let target_pc_gates = interpreter.create_pc_wire(target_pc);
+
+                // Create equality check for this case
                 let case_value = ruint_to_garbled_uint(&U256::from(i));
-                let case_value_gates = cb.input(&case_value);
-                let eq_condition = cb.eq(&case_gates, &case_value_gates);
-                next_pc_gates = cb.mux(&eq_condition, &target_pc_gates, &next_pc_gates);
+                let case_value_gates = interpreter.circuit_builder.borrow_mut().input(&case_value);
+                let eq_condition = interpreter
+                    .circuit_builder
+                    .borrow_mut()
+                    .eq(&case_gates, &case_value_gates);
+
+                // MUX between current next_pc and this case's target
+                next_pc_gates = interpreter.circuit_builder.borrow_mut().mux(
+                    &eq_condition,
+                    &target_pc_gates,
+                    &next_pc_gates,
+                );
             }
-            drop(cb);
-            interpreter.next_pc = Some(next_pc_gates);
-            interpreter.handle_private_jump = true;
-            return;
+
+            // Update PC mappings
+            interpreter.update_pc_mapping(instruction_pc, next_pc_gates.clone());
+            interpreter.current_pc_wire = Some(next_pc_gates);
+
+            interpreter.instruction_pointer =
+                unsafe { interpreter.bytecode.as_ptr().add(fallthrough_pc) };
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     }
@@ -104,45 +145,45 @@ pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
-    pop!(interpreter, target, cond);
+    pop!(interpreter, target, condition);
+    let current_pc = interpreter.program_counter();
+    let fallthrough_pc = current_pc;
 
-    match cond {
+    match condition {
         StackValueData::Public(cond) => {
             if !cond.is_zero() {
                 jump_inner(interpreter, target);
             }
         }
         StackValueData::Private(cond_gates) => {
-            let mut cb = interpreter.circuit_builder.borrow_mut();
-
             let target_pc = match target {
                 StackValueData::Public(target) => {
-                    // Convert public target to private gates
-                    let target_garbled = ruint_to_garbled_uint(&target);
-                    let target_gates = cb.input(&target_garbled);
-                    target_gates
+                    as_usize_or_fail!(interpreter, target, InstructionResult::InvalidJump)
                 }
-                StackValueData::Private(target_gates) => target_gates,
+                StackValueData::Private(_) => {
+                    panic!("Private jump targets not supported in public PC mode")
+                }
                 StackValueData::Encrypted(_) => panic!("Cannot handle encrypted jump target"),
             };
 
-            // Create private PC for current position
-            let current_pc_garbled =
-                ruint_to_garbled_uint(&U256::from(interpreter.program_counter()));
-            let current_pc_gates = cb.input(&current_pc_garbled);
+            // Create circuit wires for both possible next PCs
+            let fallthrough_gates = interpreter.create_pc_wire(fallthrough_pc);
+            let target_gates = interpreter.create_pc_wire(target_pc);
 
-            let zero = GarbledUint256::zero();
-            let zero_gates = cb.input(&zero);
-            let condition = cb.ne(&cond_gates, &zero_gates);
-            let next_pc_gates = cb.mux(&condition, &target_pc, &current_pc_gates);
+            // Use MUX to select between jump destination and fallthrough
+            let next_pc_gates = interpreter.circuit_builder.borrow_mut().mux(
+                &cond_gates[0],
+                &target_gates,
+                &fallthrough_gates,
+            );
 
-            drop(cb);
-            interpreter.next_pc = Some(next_pc_gates);
-            interpreter.handle_private_jump = true;
+            // Store next PC gates in program counter mapping
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, next_pc_gates);
+            interpreter.instruction_pointer =
+                unsafe { interpreter.bytecode.as_ptr().add(fallthrough_pc) };
         }
-        StackValueData::Encrypted(_ciphertext) => {
-            panic!("Cannot handle encrypted condition")
-        }
+        StackValueData::Encrypted(_ciphertext) => panic!("Cannot handle encrypted condition"),
     }
 }
 
@@ -155,12 +196,35 @@ fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
                 interpreter.instruction_result = InstructionResult::InvalidJump;
                 return;
             }
-            // SAFETY: `is_valid_jump` ensures that `dest` is in bounds.
+            // Create circuit wire for the target PC
+            let next_pc_gates = interpreter.create_pc_wire(target);
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, next_pc_gates.clone());
+
+            // Update current PC wire
+            interpreter.current_pc_wire = Some(next_pc_gates);
+
+            // Update actual PC
             interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
         }
         StackValueData::Private(target_gates) => {
-            interpreter.next_pc = Some(target_gates);
-            interpreter.handle_private_jump = true;
+            // For private targets, we need to evaluate the target in the circuit
+            let target_value = interpreter.evaluate_private_target(&target_gates);
+            let target =
+                as_usize_or_fail!(interpreter, target_value, InstructionResult::InvalidJump);
+
+            if !interpreter.contract.is_valid_jump(target) {
+                interpreter.instruction_result = InstructionResult::InvalidJump;
+                return;
+            }
+
+            // Store target gates in program counter mapping and current PC wire
+            let instr_pc = interpreter.program_counter() - 1;
+            interpreter.update_pc_mapping(instr_pc, target_gates.clone());
+            interpreter.current_pc_wire = Some(target_gates);
+
+            // Update actual PC
+            interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot handle encrypted jump target"),
     }
@@ -193,11 +257,20 @@ pub fn callf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         return;
     }
 
+    // Calculate return PC
+    let return_pc = interpreter.program_counter() + 2;
+
+    // Create circuit wire for return PC
+    let return_pc_gates = interpreter.create_pc_wire(return_pc);
+    interpreter.update_pc_mapping(return_pc - 1, return_pc_gates);
+
     // push current idx and PC to the callf stack.
-    // PC is incremented by 2 to point to the next instruction after callf.
-    interpreter
-        .function_stack
-        .push(interpreter.program_counter() + 2, idx);
+    interpreter.function_stack.push(return_pc, idx);
+
+    // Create circuit wire for target PC (0)
+    let target_pc_gates = interpreter.create_pc_wire(0);
+    interpreter.current_pc_wire = Some(target_pc_gates.clone());
+    interpreter.update_pc_mapping(0, target_pc_gates);
 
     interpreter.load_eof_code(idx, 0)
 }
@@ -209,6 +282,12 @@ pub fn retf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let Some(fframe) = interpreter.function_stack.pop() else {
         panic!("Expected function frame")
     };
+
+    // Create circuit wire for return PC
+    let return_pc_gates = interpreter.create_pc_wire(fframe.pc);
+    let current_pc = interpreter.program_counter();
+    interpreter.update_pc_mapping(current_pc, return_pc_gates.clone());
+    interpreter.current_pc_wire = Some(return_pc_gates);
 
     interpreter.load_eof_code(fframe.idx, fframe.pc);
 }
@@ -320,12 +399,11 @@ pub fn unknown<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     interpreter.instruction_result = InstructionResult::OpcodeNotFound;
 }
 
-#[cfg(test)]
-pub fn commit_private_jump_with_target(interpreter: &mut Interpreter, target: usize) {
-    if interpreter.handle_private_jump {
-        interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
-        interpreter.handle_private_jump = false;
-        interpreter.next_pc = None;
+impl Interpreter {
+    /// Evaluates a private target value in the circuit and returns the target PC
+    fn evaluate_private_target(&self, target_gates: &GateIndexVec) -> U256 {
+        let private_value = StackValueData::Private(target_gates.clone());
+        private_value.evaluate(&self.circuit_builder.borrow())
     }
 }
 
@@ -341,12 +419,23 @@ mod test {
         eof::{Eof, TypesSection},
         Bytecode,
     };
-    use compute::prelude::GarbledUint;
+    use compute::prelude::WRK17CircuitBuilder;
     use compute::uint::GarbledUint256;
     use primitives::bytes;
     use specification::hardfork::PragueSpec;
+    use std::cell::RefCell;
     use std::sync::Arc;
     use wiring::DefaultEthereumWiring;
+
+    fn evaluate_circuit_pc(
+        circuit_builder: &RefCell<WRK17CircuitBuilder>,
+        pc_gates: &GateIndexVec,
+    ) -> usize {
+        let cb = circuit_builder.borrow();
+        let result = cb.compile_and_execute(pc_gates).unwrap();
+        let ruint_value = garbled_uint_to_ruint::<256>(&result);
+        ruint_value.as_limbs()[0] as usize
+    }
 
     #[test]
     fn rjump() {
@@ -382,38 +471,58 @@ mod test {
     }
 
     #[test]
-    fn rjumpi_private() {
+    fn jumpi_private() {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
         let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [RJUMPI, 0x00, 0x03, RJUMPI, 0x00, 0x01, STOP, STOP].into(),
-        ));
-        interp.is_eof = true;
 
-        let garbled_one = GarbledUint::<256>::one();
-        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(garbled_one_gates))
-            .unwrap();
+        for condition in [true, false] {
+            // Bytecode layout:
+            // [0] JUMPI
+            // [1] NOP (fallthrough)
+            // [2] NOP
+            // [3] JUMPDEST (target)
+            // [4] STOP
+            let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+                [JUMPI, NOP, NOP, JUMPDEST, STOP].into(),
+            ));
+            interp.is_eof = true;
+            interp.gas = Gas::new(10000);
 
-        let garbled_zero = GarbledUint::<256>::zero();
-        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
-            .unwrap();
-        interp.gas = Gas::new(10000);
+            // Push target address (3)
+            let target = U256::from(3);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Public(target))
+                .unwrap();
 
-        // First RJUMPI: condition in top of stack is false, so no jump.
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 3);
-        assert_eq!(interp.program_counter(), 3);
+            // Create and push private condition
+            let garbled_condition = if condition {
+                GarbledUint256::one()
+            } else {
+                GarbledUint256::zero()
+            };
+            let condition_gates = interp
+                .circuit_builder
+                .borrow_mut()
+                .input(&garbled_condition);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Private(condition_gates))
+                .unwrap();
 
-        // Second RJUMPI: condition is nonzero, so jump occurs.
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 7);
-        assert_eq!(interp.program_counter(), 7);
+            // Execute JUMPI
+            interp.step(&table, &mut host);
+
+            // Get the program counter gates from mapping
+            let pc = interp.program_counter();
+            let pc_gates = interp.program_count_mapping.get(&pc).unwrap();
+            let actual_pc = evaluate_circuit_pc(&interp.circuit_builder, pc_gates);
+
+            // When condition is true, jump to target (3)
+            // When false, continue to next instruction (1)
+            let expected_pc = if condition { 3 } else { 1 };
+            assert_eq!(actual_pc, expected_pc);
+        }
     }
 
     #[test]
@@ -474,57 +583,42 @@ mod test {
     fn rjumpv_private() {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
         let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [
-                RJUMPV,
-                0x01, // max index, 0 and 1
-                0x00, // first x0001
-                0x01,
-                0x00, // second 0x002
-                0x02,
-                NOP,
-                NOP,
-                NOP,
-                RJUMP,
-                0xFF,
-                (-12i8) as u8,
-                STOP,
-            ]
-            .into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(1000);
 
-        // more then max_index
-        interp.stack.push(U256::from(10).into()).unwrap();
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 6);
-        assert_eq!(interp.program_counter(), 6);
+        // Corrected test cases with proper offsets
+        for (case, expected_pc) in [(2, 6), (0, 7), (1, 8)] {
+            let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+                [
+                    RJUMPV, // [0]
+                    0x01,   // [1] max_index
+                    0x00, 0x01, // [2-3] case 0 offset (+1)
+                    0x00, 0x02, // [4-5] case 1 offset (+2)
+                    NOP,  // [6] fallthrough
+                    NOP,  // [7] case 0 target
+                    NOP,  // [8] case 1 target
+                    STOP, // [9] end
+                ]
+                .into(),
+            ));
+            interp.is_eof = true;
+            interp.gas = Gas::new(1000);
 
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
+            // Create and push private case value
+            let garbled_case = ruint_to_garbled_uint(&U256::from(case));
+            let case_gates = interp.circuit_builder.borrow_mut().input(&garbled_case);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Private(case_gates))
+                .unwrap();
 
-        // jump to first index of vtable
-        interp.stack.push(U256::from(0).into()).unwrap();
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 7);
-        assert_eq!(interp.program_counter(), 7);
+            // Execute RJUMPV
+            interp.step(&table, &mut host);
 
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
-
-        // jump to second index of vtable
-        interp.stack.push(U256::from(1).into()).unwrap();
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 8);
-        assert_eq!(interp.program_counter(), 8);
+            // Get the program counter gates from mapping
+            let pc = interp.program_counter();
+            let pc_gates = interp.program_count_mapping.get(&pc).unwrap();
+            let actual_pc = evaluate_circuit_pc(&interp.circuit_builder, pc_gates);
+            assert_eq!(actual_pc, expected_pc);
+        }
     }
 
     #[test]
@@ -563,27 +657,28 @@ mod test {
     fn jump_private() {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
         let mut host = DummyHost::default();
+
         let mut interp =
             Interpreter::new_bytecode(Bytecode::LegacyRaw([JUMP, 0x04, JUMPDEST, STOP].into()));
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        // Create a private target address
-        let target = ruint_to_garbled_uint(&U256::from(2)); // JUMPDEST is at position 1
+        // Create private target address
+        let target = ruint_to_garbled_uint(&U256::from(2));
         let target_gates = interp.circuit_builder.borrow_mut().input(&target);
-
-        // Push the private target address onto the stack
         interp
             .stack
             .push_stack_value_data(StackValueData::Private(target_gates))
             .unwrap();
 
-        // Execute the step
-        interp.step(&table, &mut host); // JUMP
-                                        // Commit the private jump for testing
-        commit_private_jump_with_target(&mut interp, 2);
-        // Check if the program counter has been updated to expected value (2)
-        assert_eq!(interp.program_counter(), 2);
+        // Execute JUMP
+        interp.step(&table, &mut host);
+
+        // Get the program counter gates from mapping
+        let pc = interp.program_counter();
+        let pc_gates = interp.program_count_mapping.get(&pc).unwrap();
+        let actual_pc = evaluate_circuit_pc(&interp.circuit_builder, pc_gates);
+        assert_eq!(actual_pc, 2);
     }
 
     #[test]
@@ -604,39 +699,6 @@ mod test {
         // Execute the step
         interp.step(&table, &mut host);
         // Check if the program counter has jumped to the target address (3)
-        assert_eq!(interp.program_counter(), 3);
-    }
-
-    #[test]
-    fn jumpi_private() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [JUMPI, 0x03, 0x00, JUMPDEST, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
-
-        // Create a private condition
-        let condition = GarbledUint256::one();
-        let condition_gates = interp.circuit_builder.borrow_mut().input(&condition);
-
-        // Push the private condition onto the stack
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(condition_gates))
-            .unwrap();
-
-        // Push the target address (3) onto the stack
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Public(U256::from(3)))
-            .unwrap();
-
-        // Execute the step
-        interp.step(&table, &mut host);
-        commit_private_jump_with_target(&mut interp, 3);
-        // Check if the program counter has been updated to expected value (3)
         assert_eq!(interp.program_counter(), 3);
     }
 
@@ -779,36 +841,273 @@ mod test {
         // stack overflow
         assert_eq!(interp.instruction_result, InstructionResult::StackOverflow);
     }
-}
 
-impl Interpreter {
-    /// Sets up private branching logic and returns the next PC gates
-    fn setup_private_branch(
-        &self,
-        condition_gates: &GateIndexVec,
-        target_pc: usize,
-        fallthrough_pc: usize,
-    ) -> GateIndexVec {
-        let mut cb = self.circuit_builder.borrow_mut();
+    #[test]
+    fn test_private_jump() {
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+        let mut host = DummyHost::default();
 
-        // Create PC gates for both paths using the already-borrowed cb
-        let target_pc_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
-        let target_pc_gates = cb.input(&target_pc_garbled);
-        let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
-        let fallthrough_pc_gates = cb.input(&fallthrough_pc_garbled);
+        // Create bytecode: PUSH1 3, JUMP, STOP, JUMPDEST, STOP
+        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [PUSH1, 0x03, JUMP, STOP, JUMPDEST, STOP].into(),
+        ));
+        interp.gas = Gas::new(10000);
 
-        // Create zero gates for comparison using cb
-        let zero = GarbledUint256::zero();
-        let zero_gates = cb.input(&zero);
+        // Create private jump target
+        let target = U256::from(3);
+        let target_garbled = ruint_to_garbled_uint(&target);
+        let target_gates = interp.circuit_builder.borrow_mut().input(&target_garbled);
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(target_gates))
+            .unwrap();
 
-        // Compare condition with zero and select path
-        let condition = cb.ne(condition_gates, &zero_gates);
-        cb.mux(&condition, &target_pc_gates, &fallthrough_pc_gates)
+        // Execute JUMP
+        interp.step(&table, &mut host);
+
+        // Verify PC wire is consistent
+        let pc = interp.program_counter();
+        assert_eq!(pc, 3, "Jump should go to PC=3");
+
+        let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+        let circuit_pc =
+            StackValueData::Private(pc_gates.clone()).evaluate(&interp.circuit_builder.borrow());
+        assert_eq!(
+            circuit_pc.as_limbs()[0] as usize,
+            3,
+            "Circuit PC should match actual PC"
+        );
     }
 
-    /// Handles the result of a private branch operation
-    fn handle_private_branch(&mut self, next_pc_gates: GateIndexVec) {
-        self.next_pc = Some(next_pc_gates);
-        self.handle_private_jump = true;
+    #[test]
+    fn test_private_jumpi_taken() {
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+        let mut host = DummyHost::default();
+
+        // Create bytecode: PUSH1 3, PUSH1 1, JUMPI, STOP, JUMPDEST, STOP
+        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [PUSH1, 0x03, PUSH1, 0x01, JUMPI, STOP, JUMPDEST, STOP].into(),
+        ));
+        interp.gas = Gas::new(10000);
+
+        // Create private condition (true)
+        let condition = GarbledUint256::one();
+        let cond_gates = interp.circuit_builder.borrow_mut().input(&condition);
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(cond_gates))
+            .unwrap();
+
+        // Push target
+        interp.stack.push(U256::from(3).into()).unwrap();
+
+        // Execute JUMPI
+        interp.step(&table, &mut host);
+
+        // Verify PC wire is consistent
+        let pc = interp.program_counter();
+        assert_eq!(pc, 3, "Jump should be taken to PC=3");
+
+        let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+        let circuit_pc =
+            StackValueData::Private(pc_gates.clone()).evaluate(&interp.circuit_builder.borrow());
+        assert_eq!(
+            circuit_pc.as_limbs()[0] as usize,
+            3,
+            "Circuit PC should match actual PC"
+        );
+    }
+
+    #[test]
+    fn test_private_jumpi_not_taken() {
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+        let mut host = DummyHost::default();
+
+        // Create bytecode: PUSH1 3, PUSH1 0, JUMPI, STOP, JUMPDEST, STOP
+        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [PUSH1, 0x03, PUSH1, 0x00, JUMPI, STOP, JUMPDEST, STOP].into(),
+        ));
+        interp.gas = Gas::new(10000);
+
+        // Create private condition (false)
+        let condition = GarbledUint256::zero();
+        let cond_gates = interp.circuit_builder.borrow_mut().input(&condition);
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(cond_gates))
+            .unwrap();
+
+        // Push target
+        interp.stack.push(U256::from(3).into()).unwrap();
+
+        // Execute JUMPI
+        interp.step(&table, &mut host);
+
+        // Verify PC wire is consistent
+        let pc = interp.program_counter();
+        assert_eq!(pc, 5, "Jump should not be taken, PC should be 5");
+
+        let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+        let circuit_pc =
+            StackValueData::Private(pc_gates.clone()).evaluate(&interp.circuit_builder.borrow());
+        assert_eq!(
+            circuit_pc.as_limbs()[0] as usize,
+            5,
+            "Circuit PC should match actual PC"
+        );
+    }
+
+    #[test]
+    fn test_callf_retf() {
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+        let mut host = DummyHost::default();
+
+        // Create EOF bytecode with two sections
+        let bytes1 = Bytes::from([CALLF, 0x00, 0x01, STOP]);
+        let bytes2 = Bytes::from([RETF]);
+        let mut interp = eof_setup(bytes1, bytes2.clone());
+
+        // Execute CALLF
+        interp.step(&table, &mut host);
+
+        // Verify PC wire after CALLF
+        let pc = interp.program_counter();
+        assert_eq!(pc, 0, "CALLF should jump to PC=0 of section 1");
+
+        let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+        let circuit_pc =
+            StackValueData::Private(pc_gates.clone()).evaluate(&interp.circuit_builder.borrow());
+        assert_eq!(
+            circuit_pc.as_limbs()[0] as usize,
+            0,
+            "Circuit PC should match actual PC after CALLF"
+        );
+
+        // Execute RETF
+        interp.step(&table, &mut host);
+
+        // Verify PC wire after RETF
+        let pc = interp.program_counter();
+        assert_eq!(pc, 3, "RETF should return to PC=3");
+
+        let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+        let circuit_pc =
+            StackValueData::Private(pc_gates.clone()).evaluate(&interp.circuit_builder.borrow());
+        assert_eq!(
+            circuit_pc.as_limbs()[0] as usize,
+            3,
+            "Circuit PC should match actual PC after RETF"
+        );
+    }
+
+    #[test]
+    fn test_private_rjumpv() {
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+        let mut host = DummyHost::default();
+
+        // Create bytecode with RJUMPV table:
+        // case 0: jump +1 (to STOP at PC 7)
+        // case 1: jump +2 (to STOP at PC 8)
+        // default: fallthrough to STOP at PC 6
+        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [RJUMPV, 0x01, 0x00, 0x01, 0x00, 0x02, STOP, STOP, STOP].into(),
+        ));
+        interp.is_eof = true;
+        interp.gas = Gas::new(10000);
+
+        // Test case 0
+        {
+            // Create private case value (0)
+            let case = GarbledUint256::zero();
+            let case_gates = interp.circuit_builder.borrow_mut().input(&case);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Private(case_gates))
+                .unwrap();
+
+            // Execute RJUMPV
+            interp.step(&table, &mut host);
+
+            // Verify PC wire is consistent
+            let pc = interp.program_counter();
+            assert_eq!(pc, 7, "Case 0 should jump to PC=7");
+
+            let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+            let circuit_pc = StackValueData::Private(pc_gates.clone())
+                .evaluate(&interp.circuit_builder.borrow());
+            assert_eq!(
+                circuit_pc.as_limbs()[0] as usize,
+                7,
+                "Circuit PC should match actual PC for case 0"
+            );
+        }
+
+        // Reset interpreter for case 1
+        interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [RJUMPV, 0x01, 0x00, 0x01, 0x00, 0x02, STOP, STOP, STOP].into(),
+        ));
+        interp.is_eof = true;
+        interp.gas = Gas::new(10000);
+
+        // Test case 1
+        {
+            // Create private case value (1)
+            let case = ruint_to_garbled_uint(&U256::from(1));
+            let case_gates = interp.circuit_builder.borrow_mut().input(&case);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Private(case_gates))
+                .unwrap();
+
+            // Execute RJUMPV
+            interp.step(&table, &mut host);
+
+            // Verify PC wire is consistent
+            let pc = interp.program_counter();
+            assert_eq!(pc, 8, "Case 1 should jump to PC=8");
+
+            let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+            let circuit_pc = StackValueData::Private(pc_gates.clone())
+                .evaluate(&interp.circuit_builder.borrow());
+            assert_eq!(
+                circuit_pc.as_limbs()[0] as usize,
+                8,
+                "Circuit PC should match actual PC for case 1"
+            );
+        }
+
+        // Reset interpreter for default case
+        interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
+            [RJUMPV, 0x01, 0x00, 0x01, 0x00, 0x02, STOP, STOP, STOP].into(),
+        ));
+        interp.is_eof = true;
+        interp.gas = Gas::new(10000);
+
+        // Test default case
+        {
+            // Create private case value (2 - out of range)
+            let case = ruint_to_garbled_uint(&U256::from(2));
+            let case_gates = interp.circuit_builder.borrow_mut().input(&case);
+            interp
+                .stack
+                .push_stack_value_data(StackValueData::Private(case_gates))
+                .unwrap();
+
+            // Execute RJUMPV
+            interp.step(&table, &mut host);
+
+            // Verify PC wire is consistent
+            let pc = interp.program_counter();
+            assert_eq!(pc, 6, "Out of range case should fallthrough to PC=6");
+
+            let pc_gates = interp.current_pc_wire.as_ref().unwrap();
+            let circuit_pc = StackValueData::Private(pc_gates.clone())
+                .evaluate(&interp.circuit_builder.borrow());
+            assert_eq!(
+                circuit_pc.as_limbs()[0] as usize,
+                6,
+                "Circuit PC should match actual PC for default case"
+            );
+        }
     }
 }
