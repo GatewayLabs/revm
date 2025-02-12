@@ -4,9 +4,8 @@ use crate::{
 };
 use compute::{
     prelude::{CircuitExecutor, GateIndexVec, WRK17CircuitBuilder},
-    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
+    uint::{GarbledUint, GarbledUint256},
 };
-use core::num;
 use core::{fmt, ptr};
 use encryption::{
     elgamal::{Ciphertext, ElGamalEncryption, Keypair},
@@ -50,15 +49,16 @@ impl StackValueData {
         }
     }
 
+<<<<<<< Updated upstream
     pub fn evaluate(&self, builder: &WRK17CircuitBuilder) -> U256 {
+=======
+    pub fn evaluate(&self, builder: &mut WRK17CircuitBuilder) -> GarbledUint256 {
+>>>>>>> Stashed changes
         match self {
-            StackValueData::Public(val) => *val,
-            StackValueData::Private(val) => {
-                let result = builder
-                    .compile_and_execute(val)
-                    .expect("Failed to evaluate private value");
-                garbled_uint_to_ruint(&result).into()
-            }
+            StackValueData::Public(val) => ruint_to_garbled_uint(val),
+            StackValueData::Private(val) => builder
+                .compile_and_execute(val)
+                .expect("Unable to evaluate gate indices"),
             StackValueData::Encrypted(_val) => {
                 panic!("Cannot evaluate encrypted value")
             }

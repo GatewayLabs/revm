@@ -1,3 +1,4 @@
+use compute::uint::GarbledUint256;
 use primitives::{HashMap, U256};
 use state::{AccountInfo, EvmStorageSlot};
 
@@ -22,7 +23,7 @@ impl PlainAccount {
 }
 
 /// This type keeps track of the current value of a storage slot.
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StorageSlot {
     /// The value of the storage slot before it was changed.
@@ -30,9 +31,9 @@ pub struct StorageSlot {
     /// When the slot is first loaded, this is the original value.
     ///
     /// If the slot was not changed, this is equal to the present value.
-    pub previous_or_original_value: U256,
+    pub previous_or_original_value: GarbledUint256,
     /// When loaded with sload present value is set to original value
-    pub present_value: U256,
+    pub present_value: GarbledUint256,
 }
 
 impl From<EvmStorageSlot> for StorageSlot {
@@ -43,15 +44,18 @@ impl From<EvmStorageSlot> for StorageSlot {
 
 impl StorageSlot {
     /// Creates a new _unchanged_ `StorageSlot` for the given value.
-    pub fn new(original: U256) -> Self {
+    pub fn new(original: GarbledUint256) -> Self {
         Self {
-            previous_or_original_value: original,
+            previous_or_original_value: original.clone(),
             present_value: original,
         }
     }
 
     /// Creates a new _changed_ `StorageSlot`.
-    pub fn new_changed(previous_or_original_value: U256, present_value: U256) -> Self {
+    pub fn new_changed(
+        previous_or_original_value: GarbledUint256,
+        present_value: GarbledUint256,
+    ) -> Self {
         Self {
             previous_or_original_value,
             present_value,
@@ -64,13 +68,13 @@ impl StorageSlot {
     }
 
     /// Returns the original value of the storage slot.
-    pub fn original_value(&self) -> U256 {
-        self.previous_or_original_value
+    pub fn original_value(&self) -> GarbledUint256 {
+        self.previous_or_original_value.clone()
     }
 
     /// Returns the current value of the storage slot.
-    pub fn present_value(&self) -> U256 {
-        self.present_value
+    pub fn present_value(&self) -> GarbledUint256 {
+        self.present_value.clone()
     }
 }
 
@@ -81,7 +85,7 @@ pub type StorageWithOriginalValues = HashMap<U256, StorageSlot>;
 
 /// Simple plain storage that does not have previous value.
 /// This is used for loading from database, cache and for bundle state.
-pub type PlainStorage = HashMap<U256, U256>;
+pub type PlainStorage = HashMap<U256, GarbledUint256>;
 
 impl From<AccountInfo> for PlainAccount {
     fn from(info: AccountInfo) -> Self {

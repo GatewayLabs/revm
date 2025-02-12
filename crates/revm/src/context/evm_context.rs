@@ -6,6 +6,7 @@ use core::cell::RefCell;
 use core::ops::{Deref, DerefMut};
 use database_interface::Database;
 use derive_where::derive_where;
+use interpreter::instructions::utility::ruint_to_garbled_uint;
 use interpreter::CallValue;
 use interpreter::{
     return_ok, CallInputs, Contract, CreateInputs, EOFCreateInputs, EOFCreateKind, Gas,
@@ -195,7 +196,7 @@ where
                     .transfer(
                         &inputs.caller,
                         &inputs.target_address,
-                        value,
+                        ruint_to_garbled_uint(&value),
                         &mut self.inner.db,
                     )
                     .map_err(EVMError::Database)?

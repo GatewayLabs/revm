@@ -5,10 +5,11 @@ use super::{
     TransitionState,
 };
 use bytecode::Bytecode;
+use compute::uint::GarbledUint256;
 use core::{mem, ops::RangeInclusive};
 use primitives::{
     hash_map::{self, Entry},
-    Address, HashMap, HashSet, B256, KECCAK_EMPTY, U256,
+    ruint_to_garbled_uint, Address, HashMap, HashSet, B256, KECCAK_EMPTY, U256,
 };
 use state::AccountInfo;
 use std::{
@@ -22,12 +23,12 @@ pub struct BundleBuilder {
     states: HashSet<Address>,
     state_original: HashMap<Address, AccountInfo>,
     state_present: HashMap<Address, AccountInfo>,
-    state_storage: HashMap<Address, HashMap<U256, (U256, U256)>>,
+    state_storage: HashMap<Address, HashMap<U256, (GarbledUint256, GarbledUint256)>>,
 
     reverts: BTreeSet<(u64, Address)>,
     revert_range: RangeInclusive<u64>,
     revert_account: HashMap<(u64, Address), Option<Option<AccountInfo>>>,
-    revert_storage: HashMap<(u64, Address), Vec<(U256, U256)>>,
+    revert_storage: HashMap<(u64, Address), Vec<(U256, GarbledUint256)>>,
 
     contracts: HashMap<B256, Bytecode>,
 }
@@ -117,7 +118,11 @@ impl BundleBuilder {
     }
 
     /// Collect storage info of BundleState state
-    pub fn state_storage(mut self, address: Address, storage: HashMap<U256, (U256, U256)>) -> Self {
+    pub fn state_storage(
+        mut self,
+        address: Address,
+        storage: HashMap<U256, (GarbledUint256, GarbledUint256)>,
+    ) -> Self {
         self.set_state_storage(address, storage);
         self
     }
@@ -153,7 +158,7 @@ impl BundleBuilder {
         mut self,
         block_number: u64,
         address: Address,
-        storage: Vec<(U256, U256)>,
+        storage: Vec<(U256, GarbledUint256)>,
     ) -> Self {
         self.set_revert_storage(block_number, address, storage);
         self
@@ -197,7 +202,7 @@ impl BundleBuilder {
     pub fn set_state_storage(
         &mut self,
         address: Address,
-        storage: HashMap<U256, (U256, U256)>,
+        storage: HashMap<U256, (GarbledUint256, GarbledUint256)>,
     ) -> &mut Self {
         self.states.insert(address);
         self.state_storage.insert(address, storage);
@@ -227,7 +232,7 @@ impl BundleBuilder {
         &mut self,
         block_number: u64,
         address: Address,
-        storage: Vec<(U256, U256)>,
+        storage: Vec<(U256, GarbledUint256)>,
     ) -> &mut Self {
         self.reverts.insert((block_number, address));
         self.revert_storage.insert((block_number, address), storage);
@@ -339,7 +344,9 @@ impl BundleBuilder {
     }
 
     /// Mutable getter for `state_storage` field
-    pub fn get_state_storage_mut(&mut self) -> &mut HashMap<Address, HashMap<U256, (U256, U256)>> {
+    pub fn get_state_storage_mut(
+        &mut self,
+    ) -> &mut HashMap<Address, HashMap<U256, (GarbledUint256, GarbledUint256)>> {
         &mut self.state_storage
     }
 
@@ -361,7 +368,9 @@ impl BundleBuilder {
     }
 
     /// Mutable getter for `revert_storage` field
-    pub fn get_revert_storage_mut(&mut self) -> &mut HashMap<(u64, Address), Vec<(U256, U256)>> {
+    pub fn get_revert_storage_mut(
+        &mut self,
+    ) -> &mut HashMap<(u64, Address), Vec<(U256, GarbledUint256)>> {
         &mut self.revert_storage
     }
 
@@ -425,7 +434,7 @@ impl BundleState {
                 Address,
                 Option<AccountInfo>,
                 Option<AccountInfo>,
-                HashMap<U256, (U256, U256)>,
+                HashMap<U256, (GarbledUint256, GarbledUint256)>,
             ),
         >,
         reverts: impl IntoIterator<
@@ -433,7 +442,7 @@ impl BundleState {
                 Item = (
                     Address,
                     Option<Option<AccountInfo>>,
-                    impl IntoIterator<Item = (U256, U256)>,
+                    impl IntoIterator<Item = (U256, GarbledUint256)>,
                 ),
             >,
         >,
@@ -607,20 +616,21 @@ impl BundleState {
             // database so we can check if plain state was wiped or not.
             let mut account_storage_changed = Vec::with_capacity(account.storage.len());
 
-            for (key, slot) in account.storage.iter().map(|(k, v)| (*k, *v)) {
+            for (key, slot) in account.storage.iter().map(|(k, v)| (*k, v.clone())) {
                 // If storage was destroyed that means that storage was wiped.
                 // In that case we need to check if present storage value is different then ZERO.
-                let destroyed_and_not_zero = was_destroyed && !slot.present_value.is_zero();
+                let destroyed_and_not_zero =
+                    was_destroyed && !slot.clone().present_value == GarbledUint256::zero();
 
                 // If account is not destroyed check if original values was changed,
                 // so we can update it.
-                let not_destroyed_and_changed = !was_destroyed && slot.is_changed();
+                let not_destroyed_and_changed = !was_destroyed && slot.clone().is_changed();
 
                 if is_value_known.is_not_known()
                     || destroyed_and_not_zero
                     || not_destroyed_and_changed
                 {
-                    account_storage_changed.push((key, slot.present_value));
+                    account_storage_changed.push((key, slot.clone().present_value));
                 }
             }
 
@@ -696,8 +706,8 @@ impl BundleState {
                             // update present value or insert storage slot.
                             this.storage
                                 .entry(key)
-                                .or_insert(storage_slot)
-                                .present_value = storage_slot.present_value;
+                                .or_insert(storage_slot.clone())
+                                .present_value = storage_slot.clone().present_value;
                         }
                     }
                     this.info = other_account.info;
@@ -856,6 +866,8 @@ impl BundleState {
 
 #[cfg(test)]
 mod tests {
+    use compute::uint::GarbledUint256;
+
     use super::*;
     use crate::{StorageWithOriginalValues, TransitionAccount};
 
@@ -864,7 +876,7 @@ mod tests {
         // dummy data
         let address = Address::new([0x01; 20]);
         let acc1 = AccountInfo {
-            balance: U256::from(10),
+            balance: GarbledUint256::from(10_u128),
             nonce: 1,
             code_hash: KECCAK_EMPTY,
             code: None,
@@ -916,13 +928,19 @@ mod tests {
                     None,
                     Some(AccountInfo {
                         nonce: 1,
-                        balance: U256::from(10),
+                        balance: GarbledUint256::from(10_u128),
                         code_hash: KECCAK_EMPTY,
                         code: None,
                     }),
                     HashMap::from_iter([
-                        (slot1(), (U256::from(0), U256::from(10))),
-                        (slot2(), (U256::from(0), U256::from(15))),
+                        (
+                            slot1(),
+                            (GarbledUint256::zero(), GarbledUint256::from(10_u128)),
+                        ),
+                        (
+                            slot2(),
+                            (GarbledUint256::zero(), GarbledUint256::from(15_u128)),
+                        ),
                     ]),
                 ),
                 (
@@ -930,7 +948,7 @@ mod tests {
                     None,
                     Some(AccountInfo {
                         nonce: 1,
-                        balance: U256::from(10),
+                        balance: GarbledUint256::from(10_u128),
                         code_hash: KECCAK_EMPTY,
                         code: None,
                     }),
@@ -941,7 +959,10 @@ mod tests {
                 (
                     account1(),
                     Some(None),
-                    vec![(slot1(), U256::from(0)), (slot2(), U256::from(0))],
+                    vec![
+                        (slot1(), GarbledUint256::zero()),
+                        (slot2(), GarbledUint256::zero()),
+                    ],
                 ),
                 (account2(), Some(None), vec![]),
             ]],
@@ -958,21 +979,24 @@ mod tests {
                 None,
                 Some(AccountInfo {
                     nonce: 3,
-                    balance: U256::from(20),
+                    balance: 20_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 }),
-                HashMap::from_iter([(slot1(), (U256::from(0), U256::from(15)))]),
+                HashMap::from_iter([(
+                    slot1(),
+                    (GarbledUint256::from(0_u128), GarbledUint256::from(15_u128)),
+                )]),
             )],
             vec![vec![(
                 account1(),
                 Some(Some(AccountInfo {
                     nonce: 1,
-                    balance: U256::from(10),
+                    balance: 10_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 })),
-                vec![(slot1(), U256::from(10))],
+                vec![(slot1(), 10_u128.into())],
             )]],
             vec![],
         )
@@ -985,28 +1009,28 @@ mod tests {
                 account1(),
                 AccountInfo {
                     nonce: 1,
-                    balance: U256::from(10),
+                    balance: 10_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 },
             )
             .state_storage(
                 account1(),
-                HashMap::from_iter([(slot1(), (U256::from(0), U256::from(10)))]),
+                HashMap::from_iter([(slot1(), (0_u128.into(), 10_u128.into()))]),
             )
             .state_address(account2())
             .state_present_account_info(
                 account2(),
                 AccountInfo {
                     nonce: 1,
-                    balance: U256::from(10),
+                    balance: 10_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 },
             )
             .revert_address(0, account1())
             .revert_account_info(0, account1(), Some(None))
-            .revert_storage(0, account1(), vec![(slot1(), U256::from(0))])
+            .revert_storage(0, account1(), vec![(slot1(), GarbledUint256::zero())])
             .revert_account_info(0, account2(), Some(None))
             .build()
     }
@@ -1018,14 +1042,14 @@ mod tests {
                 account1(),
                 AccountInfo {
                     nonce: 3,
-                    balance: U256::from(20),
+                    balance: 20_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 },
             )
             .state_storage(
                 account1(),
-                HashMap::from_iter([(slot1(), (U256::from(0), U256::from(15)))]),
+                HashMap::from_iter([(slot1(), (GarbledUint256::zero(), 15_u128.into()))]),
             )
             .revert_address(0, account1())
             .revert_account_info(
@@ -1033,12 +1057,12 @@ mod tests {
                 account1(),
                 Some(Some(AccountInfo {
                     nonce: 1,
-                    balance: U256::from(10),
+                    balance: 10_u128.into(),
                     code_hash: KECCAK_EMPTY,
                     code: None,
                 })),
             )
-            .revert_storage(0, account1(), vec![(slot1(), U256::from(10))])
+            .revert_storage(0, account1(), vec![(slot1(), 10_u128.into())])
             .build()
     }
 
@@ -1107,7 +1131,7 @@ mod tests {
         revert1
             .1
             .storage
-            .insert(slot2(), RevertToSlot::Some(U256::from(15)));
+            .insert(slot2(), RevertToSlot::Some(15_u128.into()));
 
         assert_eq!(
             b1.reverts.as_ref(),
@@ -1168,7 +1192,7 @@ mod tests {
             .revert_address(2, account2())
             .revert_account_info(0, account1(), Some(None))
             .revert_account_info(2, account2(), None)
-            .revert_storage(0, account1(), vec![(slot1(), U256::from(10))])
+            .revert_storage(0, account1(), vec![(slot1(), 10_u128.into())])
             .build();
 
         assert_eq!(state.reverts.len(), 4);
@@ -1314,7 +1338,7 @@ mod tests {
         assert!(builder.get_revert_storage_mut().is_empty());
         builder
             .get_revert_storage_mut()
-            .insert((0, account1()), vec![(slot1(), U256::from(0))]);
+            .insert((0, account1()), vec![(slot1(), GarbledUint256::zero())]);
         assert!(builder
             .get_revert_storage_mut()
             .contains_key(&(0, account1())));

@@ -2,6 +2,7 @@ use super::{
     changes::PlainStorageRevert, AccountStatus, BundleAccount, PlainStateReverts,
     StorageWithOriginalValues,
 };
+use compute::uint::GarbledUint256;
 use core::ops::{Deref, DerefMut};
 use primitives::{Address, HashMap, U256};
 use state::AccountInfo;
@@ -70,7 +71,7 @@ impl Reverts {
                         storage_revert: revert_account
                             .storage
                             .iter()
-                            .map(|(k, v)| (*k, *v))
+                            .map(|(k, v)| (*k, v.clone()))
                             .collect::<Vec<_>>(),
                     });
                 }
@@ -175,7 +176,7 @@ impl AccountRevert {
             .iter_mut()
             .map(|(key, value)| {
                 // take previous value and set ZERO as storage got destroyed.
-                (*key, RevertToSlot::Some(value.present_value))
+                (*key, RevertToSlot::Some(value.present_value.clone()))
             })
             .collect();
 
@@ -219,18 +220,18 @@ pub enum AccountInfoRevert {
 ///
 /// Note: It is completely different state if Storage is Zero or Some or if Storage was
 /// Destroyed. Because if it is destroyed, previous values can be found in database or it can be zero.
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RevertToSlot {
-    Some(U256),
+    Some(GarbledUint256),
     Destroyed,
 }
 
 impl RevertToSlot {
-    pub fn to_previous_value(self) -> U256 {
+    pub fn to_previous_value(self) -> GarbledUint256 {
         match self {
             RevertToSlot::Some(value) => value,
-            RevertToSlot::Destroyed => U256::ZERO,
+            RevertToSlot::Destroyed => GarbledUint256::zero(),
         }
     }
 }

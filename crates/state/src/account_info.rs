@@ -1,4 +1,5 @@
 use bytecode::Bytecode;
+use compute::uint::GarbledUint256;
 use core::hash::{Hash, Hasher};
 use primitives::{B256, KECCAK_EMPTY, U256};
 
@@ -7,7 +8,7 @@ use primitives::{B256, KECCAK_EMPTY, U256};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AccountInfo {
     /// Account balance.
-    pub balance: U256,
+    pub balance: GarbledUint256,
     /// Account nonce.
     pub nonce: u64,
     /// code hash,
@@ -20,7 +21,7 @@ pub struct AccountInfo {
 impl Default for AccountInfo {
     fn default() -> Self {
         Self {
-            balance: U256::ZERO,
+            balance: GarbledUint256::zero(),
             code_hash: KECCAK_EMPTY,
             code: Some(Bytecode::default()),
             nonce: 0,
@@ -47,7 +48,7 @@ impl Hash for AccountInfo {
 impl AccountInfo {
     /// Creates a new [`AccountInfo`] with the given fields.
     #[inline]
-    pub fn new(balance: U256, nonce: u64, code_hash: B256, code: Bytecode) -> Self {
+    pub fn new(balance: GarbledUint256, nonce: u64, code_hash: B256, code: Bytecode) -> Self {
         Self {
             balance,
             nonce,
@@ -68,7 +69,7 @@ impl AccountInfo {
     #[inline]
     pub fn copy_without_code(&self) -> Self {
         Self {
-            balance: self.balance,
+            balance: self.balance.clone(),
             nonce: self.nonce,
             code_hash: self.code_hash,
             code: None,
@@ -98,7 +99,7 @@ impl AccountInfo {
     #[inline]
     pub fn is_empty(&self) -> bool {
         let code_empty = self.is_empty_code_hash() || self.code_hash.is_zero();
-        code_empty && self.balance.is_zero() && self.nonce == 0
+        code_empty && self.balance == GarbledUint256::zero() && self.nonce == 0
     }
 
     /// Returns `true` if the account is not empty.
@@ -135,7 +136,7 @@ impl AccountInfo {
     /// Initialize an [`AccountInfo`] with the given balance, setting all other fields to their
     /// default values.
     #[inline]
-    pub fn from_balance(balance: U256) -> Self {
+    pub fn from_balance(balance: GarbledUint256) -> Self {
         AccountInfo {
             balance,
             ..Default::default()
@@ -149,7 +150,7 @@ impl AccountInfo {
         let hash = bytecode.hash_slow();
 
         AccountInfo {
-            balance: U256::ZERO,
+            balance: GarbledUint256::zero(),
             nonce: 1,
             code: Some(bytecode),
             code_hash: hash,

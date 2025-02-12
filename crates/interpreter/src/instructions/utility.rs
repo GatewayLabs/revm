@@ -1,7 +1,12 @@
-
 pub fn debug_garbled_indices(name: &str, value: &GateIndexVec) {
-    println!("DEBUG {}: index_len={}, indices={:?}", name, value.len(), value);
-}use compute::{int::GarbledInt, prelude::GateIndexVec, uint::GarbledUint};
+    println!(
+        "DEBUG {}: index_len={}, indices={:?}",
+        name,
+        value.len(),
+        value
+    );
+}
+use compute::{int::GarbledInt, prelude::GateIndexVec, uint::GarbledUint};
 use primitives::ruint::Uint;
 
 pub(crate) unsafe fn read_i16(ptr: *const u8) -> i16 {
@@ -19,6 +24,7 @@ pub(crate) unsafe fn read_u16(ptr: *const u8) -> u16 {
     u16::from_be_bytes(core::slice::from_raw_parts(ptr, 2).try_into().unwrap())
 }
 
+// TODO: remove redundant code found in primitives subcrate
 pub fn ruint_to_garbled_uint(value: &Uint<256, 4>) -> GarbledUint<256> {
     let bytes: [u8; 32] = value.to_le_bytes();
 
@@ -58,7 +64,7 @@ pub fn garbled_uint_to_ruint<const BITS: usize>(garbled_uint: &GarbledUint<BITS>
 
 pub fn ruint_to_garbled_uint64(value: &Uint<256, 4>) -> GarbledUint<64> {
     let bytes: [u8; 32] = value.to_le_bytes();
-    
+
     let mut bits = Vec::with_capacity(64);
     for byte in bytes.iter().take(8) {
         for i in 0..8 {

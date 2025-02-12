@@ -386,7 +386,7 @@ pub fn create<const IS_CREATE2: bool, H: Host + ?Sized, SPEC: Spec>(
         InterpreterAction::NewFrame(NewFrameAction::Create(Box::new(CreateInputs {
             caller: interpreter.contract.target_address,
             scheme,
-            value: value.into(),
+            value: value.evaluate(&mut interpreter.circuit_builder),
             init_code: code,
             gas_limit,
         })));

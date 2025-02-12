@@ -1,3 +1,4 @@
+use compute::uint::GarbledUint256;
 use primitives::{Address, Bytes, U256};
 use wiring::default::CreateScheme;
 
@@ -10,7 +11,7 @@ pub struct CreateInputs {
     /// The create scheme.
     pub scheme: CreateScheme,
     /// The value to transfer.
-    pub value: U256,
+    pub value: GarbledUint256,
     /// The init code of the contract.
     pub init_code: Bytes,
     /// The gas limit of the call.

@@ -7,6 +7,9 @@
 mod constants;
 pub use constants::*;
 
+mod garbled_uint;
+pub use garbled_uint::*;
+
 pub use alloy_primitives::{
     self, address, b256, bytes, fixed_bytes, hex, hex_literal, keccak256, ruint, uint, Address,
     Bytes, FixedBytes, Log, LogData, TxKind, B256, I256, U256,

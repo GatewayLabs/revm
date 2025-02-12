@@ -1,5 +1,6 @@
 use crate::{journaled_state::JournaledState, JournalCheckpoint};
 use bytecode::{Bytecode, Eof, EOF_MAGIC_BYTES, EOF_MAGIC_HASH};
+use compute::uint::GarbledUint256;
 use database_interface::Database;
 use derive_where::derive_where;
 use interpreter::{
@@ -165,10 +166,14 @@ impl<EvmWiringT: EvmWiring> InnerEvmContext<EvmWiringT> {
     pub fn balance(
         &mut self,
         address: Address,
-    ) -> Result<StateLoad<U256>, <EvmWiringT::Database as Database>::Error> {
+    ) -> Result<StateLoad<GarbledUint256>, <EvmWiringT::Database as Database>::Error> {
         self.journaled_state
             .load_account(address, &mut self.db)
+<<<<<<< Updated upstream
             .map(|acc| acc.map(|a| a.info.balance.into()))
+=======
+            .map(|acc| acc.map(|a| a.info.balance.clone()))
+>>>>>>> Stashed changes
     }
 
     /// Return account code bytes and if address is cold loaded.
@@ -268,7 +273,7 @@ impl<EvmWiringT: EvmWiring> InnerEvmContext<EvmWiringT> {
         &mut self,
         address: Address,
         index: U256,
-    ) -> Result<StateLoad<U256>, <EvmWiringT::Database as Database>::Error> {
+    ) -> Result<StateLoad<GarbledUint256>, <EvmWiringT::Database as Database>::Error> {
         // account is always warm. reference on that statement https://eips.ethereum.org/EIPS/eip-2929 see `Note 2:`
         self.journaled_state.sload(address, index, &mut self.db)
     }
@@ -279,7 +284,7 @@ impl<EvmWiringT: EvmWiring> InnerEvmContext<EvmWiringT> {
         &mut self,
         address: Address,
         index: U256,
-        value: U256,
+        value: GarbledUint256,
     ) -> Result<StateLoad<SStoreResult>, <EvmWiringT::Database as Database>::Error> {
         self.journaled_state
             .sstore(address, index, value, &mut self.db)
@@ -287,13 +292,13 @@ impl<EvmWiringT: EvmWiring> InnerEvmContext<EvmWiringT> {
 
     /// Returns transient storage value.
     #[inline]
-    pub fn tload(&mut self, address: Address, index: U256) -> U256 {
+    pub fn tload(&mut self, address: Address, index: U256) -> GarbledUint256 {
         self.journaled_state.tload(address, index)
     }
 
     /// Stores transient storage value.
     #[inline]
-    pub fn tstore(&mut self, address: Address, index: U256, value: U256) {
+    pub fn tstore(&mut self, address: Address, index: U256, value: GarbledUint256) {
         self.journaled_state.tstore(address, index, value)
     }
 

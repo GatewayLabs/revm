@@ -1,4 +1,5 @@
 use bytecode::Bytecode;
+use compute::uint::GarbledUint256;
 use database_interface::Database;
 use interpreter::{
     AccountLoad, Eip7702CodeLoad, InstructionResult, SStoreResult, SelfDestructResult, StateLoad,
@@ -202,7 +203,7 @@ impl JournaledState {
         &mut self,
         from: &Address,
         to: &Address,
-        balance: U256,
+        balance: GarbledUint256,
         db: &mut DB,
     ) -> Result<Option<InstructionResult>, DB::Error> {
         // load accounts
@@ -214,18 +215,18 @@ impl JournaledState {
         Self::touch_account(self.journal.last_mut().unwrap(), from, from_account);
         let from_balance = &mut from_account.info.balance;
 
-        let Some(from_balance_incr) = from_balance.checked_sub(balance) else {
+        let from_balance_incr = (*from_balance).clone() - balance.clone();
+        if from_balance_incr < GarbledUint256::zero() {
             return Ok(Some(InstructionResult::OutOfFunds));
-        };
+        }
         *from_balance = from_balance_incr;
 
         // add balance to
         let to_account = &mut self.state.get_mut(to).unwrap();
         Self::touch_account(self.journal.last_mut().unwrap(), to, to_account);
         let to_balance = &mut to_account.info.balance;
-        let Some(to_balance_decr) = to_balance.checked_add(balance) else {
-            return Ok(Some(InstructionResult::OverflowPayment));
-        };
+
+        let to_balance_decr = (*to_balance).clone() + balance.clone();
         *to_balance = to_balance_decr;
         // Overflow of U256 balance is not possible to happen on mainnet. We don't bother to return funds from from_acc.
 
@@ -261,7 +262,7 @@ impl JournaledState {
         &mut self,
         caller: Address,
         address: Address,
-        balance: U256,
+        balance: GarbledUint256,
         spec_id: SpecId,
     ) -> Result<JournalCheckpoint, InstructionResult> {
         // Enter subroutine
@@ -292,11 +293,7 @@ impl JournaledState {
         Self::touch_account(last_journal, &address, account);
 
         // Add balance to created account, as we already have target here.
-        let Some(new_balance) = account.info.balance.checked_add(balance) else {
-            self.checkpoint_revert(checkpoint);
-            return Err(InstructionResult::OverflowPayment);
-        };
-        account.info.balance = new_balance;
+        account.info.balance += balance.clone();
 
         // EIP-161: State trie clearing (invariant-preserving alternative)
         if spec_id.is_enabled_in(SPURIOUS_DRAGON) {
@@ -307,7 +304,7 @@ impl JournaledState {
         // Sub balance from caller
         let caller_account = self.state.get_mut(&caller).unwrap();
         // Balance is already checked in `create_inner`, so it is safe to just subtract.
-        caller_account.info.balance -= balance;
+        caller_account.info.balance -= balance.clone();
 
         // add journal entry of transferred balance
         last_journal.push(JournalEntry::BalanceTransfer {
@@ -355,7 +352,7 @@ impl JournaledState {
                         // flag that is not selfdestructed
                         account.unmark_selfdestruct();
                     }
-                    account.info.balance += had_balance;
+                    account.info.balance += had_balance.clone();
 
                     if address != target {
                         let target = state.get_mut(&target).unwrap();
@@ -365,7 +362,7 @@ impl JournaledState {
                 JournalEntry::BalanceTransfer { from, to, balance } => {
                     // we don't need to check overflow and underflow when adding and subtracting the balance.
                     let from = state.get_mut(&from).unwrap();
-                    from.info.balance += balance;
+                    from.info.balance += balance.clone();
                     let to = state.get_mut(&to).unwrap();
                     to.info.balance -= balance;
                 }
@@ -409,12 +406,12 @@ impl JournaledState {
                     had_value,
                 } => {
                     let tkey = (address, key);
-                    if had_value.is_zero() {
+                    if had_value == GarbledUint256::zero() {
                         // if previous value is zero, remove it
                         transient_storage.remove(&tkey);
                     } else {
                         // if not zero, reinsert old value to transient storage.
-                        transient_storage.insert(tkey, had_value);
+                        transient_storage.insert(tkey, had_value.clone());
                     }
                 }
                 JournalEntry::CodeChange { address } => {
@@ -496,7 +493,7 @@ impl JournaledState {
         if address != target {
             // Both accounts are loaded before this point, `address` as we execute its contract.
             // and `target` at the beginning of the function.
-            let acc_balance = self.state.get_mut(&address).unwrap().info.balance;
+            let acc_balance = self.state.get_mut(&address).unwrap().info.balance.clone();
 
             let target_account = self.state.get_mut(&target).unwrap();
             Self::touch_account(self.journal.last_mut().unwrap(), &target, target_account);
@@ -504,26 +501,26 @@ impl JournaledState {
         }
 
         let acc = self.state.get_mut(&address).unwrap();
-        let balance = acc.info.balance;
+        let balance = acc.info.balance.clone();
         let previously_destroyed = acc.is_selfdestructed();
         let is_cancun_enabled = SpecId::enabled(self.spec, CANCUN);
 
         // EIP-6780 (Cancun hard-fork): selfdestruct only if contract is created in the same tx
         let journal_entry = if acc.is_created() || !is_cancun_enabled {
             acc.mark_selfdestruct();
-            acc.info.balance = U256::ZERO;
+            acc.info.balance = GarbledUint256::zero();
             Some(JournalEntry::AccountDestroyed {
                 address,
                 target,
                 was_destroyed: previously_destroyed,
-                had_balance: balance,
+                had_balance: balance.clone(),
             })
         } else if address != target {
-            acc.info.balance = U256::ZERO;
+            acc.info.balance = GarbledUint256::zero();
             Some(JournalEntry::BalanceTransfer {
                 from: address,
                 to: target,
-                balance,
+                balance: balance.clone(),
             })
         } else {
             // State is not changed:
@@ -539,7 +536,7 @@ impl JournaledState {
 
         Ok(StateLoad {
             data: SelfDestructResult {
-                had_value: !balance.is_zero(),
+                had_value: !balance == GarbledUint256::zero(),
                 target_exists: !is_empty,
                 previously_destroyed,
             },
@@ -676,7 +673,7 @@ impl JournaledState {
         address: Address,
         key: U256,
         db: &mut DB,
-    ) -> Result<StateLoad<U256>, DB::Error> {
+    ) -> Result<StateLoad<GarbledUint256>, DB::Error> {
         // assume acc is warm
         let account = self.state.get_mut(&address).unwrap();
         // only if account is created in this tx we can assume that storage is empty.
@@ -685,17 +682,17 @@ impl JournaledState {
             Entry::Occupied(occ) => {
                 let slot = occ.into_mut();
                 let is_cold = slot.mark_warm();
-                (slot.present_value, is_cold)
+                (slot.present_value.clone(), is_cold)
             }
             Entry::Vacant(vac) => {
                 // if storage was cleared, we don't need to ping db.
                 let value = if is_newly_created {
-                    U256::ZERO
+                    GarbledUint256::zero()
                 } else {
                     db.storage(address, key)?
                 };
 
-                vac.insert(EvmStorageSlot::new(value));
+                vac.insert(EvmStorageSlot::new(value.clone()));
 
                 (value, true)
             }
@@ -723,7 +720,7 @@ impl JournaledState {
         &mut self,
         address: Address,
         key: U256,
-        new: U256,
+        new: GarbledUint256,
         db: &mut DB,
     ) -> Result<StateLoad<SStoreResult>, DB::Error> {
         // assume that acc exists and load the slot.
@@ -734,12 +731,12 @@ impl JournaledState {
         let slot = acc.storage.get_mut(&key).unwrap();
 
         // new value is same as present, we don't need to do anything
-        if present.data == new {
+        if present.data == &new {
             return Ok(StateLoad::new(
                 SStoreResult {
                     original_value: slot.original_value(),
                     present_value: present.data,
-                    new_value: new,
+                    new_value: new.clone(),
                 },
                 present.is_cold,
             ));
@@ -751,10 +748,10 @@ impl JournaledState {
             .push(JournalEntry::StorageChanged {
                 address,
                 key,
-                had_value: present.data,
+                had_value: present.clone().data,
             });
         // insert value into present state.
-        slot.present_value = new;
+        slot.present_value = new.clone();
         Ok(StateLoad::new(
             SStoreResult {
                 original_value: slot.original_value(),
@@ -769,11 +766,12 @@ impl JournaledState {
     ///
     /// EIP-1153: Transient storage opcodes
     #[inline]
-    pub fn tload(&mut self, address: Address, key: U256) -> U256 {
-        self.transient_storage
-            .get(&(address, key))
-            .copied()
-            .unwrap_or_default()
+    pub fn tload(&mut self, address: Address, key: U256) -> GarbledUint256 {
+        if let Some(storage) = self.transient_storage.get(&(address, key)) {
+            storage.clone()
+        } else {
+            GarbledUint256::zero()
+        }
     }
 
     /// Store transient storage tied to the account.
@@ -783,8 +781,8 @@ impl JournaledState {
     ///
     /// EIP-1153: Transient storage opcodes
     #[inline]
-    pub fn tstore(&mut self, address: Address, key: U256, new: U256) {
-        let had_value = if new.is_zero() {
+    pub fn tstore(&mut self, address: Address, key: U256, new: GarbledUint256) {
+        let had_value = if &new == &GarbledUint256::zero() {
             // if new values is zero, remove entry from transient storage.
             // if previous values was some insert it inside journal.
             // If it is none nothing should be inserted.
@@ -793,11 +791,11 @@ impl JournaledState {
             // insert values
             let previous_value = self
                 .transient_storage
-                .insert((address, key), new)
+                .insert((address, key), new.clone())
                 .unwrap_or_default();
 
             // check if previous value is same
-            if previous_value != new {
+            if &previous_value != &new {
                 // if it is different, insert previous values inside journal.
                 Some(previous_value)
             } else {
@@ -840,7 +838,7 @@ pub enum JournalEntry {
         address: Address,
         target: Address,
         was_destroyed: bool, // if account had already been destroyed before this journal entry
-        had_balance: U256,
+        had_balance: GarbledUint256,
     },
     /// Loading account does not mean that account will need to be added to MerkleTree (touched).
     /// Only when account is called (to execute contract or transfer balance) only then account is made touched.
@@ -853,7 +851,7 @@ pub enum JournalEntry {
     BalanceTransfer {
         from: Address,
         to: Address,
-        balance: U256,
+        balance: GarbledUint256,
     },
     /// Increment nonce
     /// Action: Increment nonce by one
@@ -871,7 +869,7 @@ pub enum JournalEntry {
     StorageChanged {
         address: Address,
         key: U256,
-        had_value: U256,
+        had_value: GarbledUint256,
     },
     /// Entry used to track storage warming introduced by EIP-2929.
     /// Action: Storage warmed
@@ -883,7 +881,7 @@ pub enum JournalEntry {
     TransientStorageChange {
         address: Address,
         key: U256,
-        had_value: U256,
+        had_value: GarbledUint256,
     },
     /// Code changed
     /// Action: Account code changed

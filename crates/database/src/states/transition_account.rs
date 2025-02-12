@@ -1,5 +1,6 @@
 use super::{AccountRevert, AccountStatus, BundleAccount, StorageWithOriginalValues};
 use bytecode::Bytecode;
+use compute::uint::GarbledUint256;
 use primitives::{hash_map, B256, U256};
 use state::AccountInfo;
 
@@ -55,18 +56,18 @@ impl TransitionAccount {
     }
 
     /// Return the balance of account before transition.
-    pub fn previous_balance(&self) -> U256 {
+    pub fn previous_balance(&self) -> GarbledUint256 {
         self.previous_info
             .as_ref()
-            .map(|info| info.balance)
+            .map(|info| info.balance.clone())
             .unwrap_or_default()
     }
 
     /// Return the balance of account after transition.
-    pub fn current_balance(&self) -> U256 {
+    pub fn current_balance(&self) -> GarbledUint256 {
         self.info
             .as_ref()
-            .map(|info| info.balance)
+            .map(|info| info.balance.clone())
             .unwrap_or_default()
     }
 

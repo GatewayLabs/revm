@@ -1195,7 +1195,10 @@ dependencies = [
 [[package]]
 name = "circuit_macro"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/GatewayLabs/circuit-sdk#1e57b0166d0dce0ce25dec9ba318cc2dca26883c"
+=======
+>>>>>>> Stashed changes
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1263,7 +1266,10 @@ dependencies = [
 [[package]]
 name = "compute"
 version = "0.1.0"
+<<<<<<< Updated upstream
 source = "git+https://github.com/GatewayLabs/circuit-sdk#1e57b0166d0dce0ce25dec9ba318cc2dca26883c"
+=======
+>>>>>>> Stashed changes
 dependencies = [
  "anyhow",
  "bincode",
@@ -4248,6 +4254,7 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "auto_impl",
+ "compute",
  "criterion",
  "indicatif",
  "revm-bytecode",
@@ -4268,6 +4275,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "auto_impl",
+ "compute",
  "criterion",
  "indicatif",
  "revm-primitives",
@@ -4391,6 +4399,7 @@ name = "revm-state"
 version = "1.0.0"
 dependencies = [
  "bitflags",
+ "compute",
  "revm-bytecode",
  "revm-primitives",
  "revm-specification",

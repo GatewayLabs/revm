@@ -5,6 +5,10 @@ use crate::{
 use bytecode::EOF_MAGIC_BYTES;
 use core::mem;
 use interpreter::{
+<<<<<<< Updated upstream
+=======
+    instructions::utility::ruint_to_garbled_uint,
+>>>>>>> Stashed changes
     interpreter::{PrivateMemory, EMPTY_PRIVATE_MEMORY},
     return_ok, return_revert,
     table::InstructionTables,
@@ -79,7 +83,7 @@ pub fn first_frame_creation<EvmWiringT: EvmWiring, SPEC: Spec>(
                 NewFrameAction::Create(Box::new(CreateInputs {
                     caller: tx.common_fields().caller(),
                     scheme: CreateScheme::Create,
-                    value: tx.common_fields().value(),
+                    value: ruint_to_garbled_uint(&tx.common_fields().value()),
                     init_code: input,
                     gas_limit,
                 }))

@@ -8,6 +8,7 @@ pub use bytecode;
 
 pub use account_info::AccountInfo;
 pub use bytecode::Bytecode;
+use compute::uint::GarbledUint256;
 pub use primitives;
 pub use types::{EvmState, EvmStorage, TransientStorage};
 
@@ -174,25 +175,25 @@ impl Default for AccountStatus {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EvmStorageSlot {
     /// Original value of the storage slot.
-    pub original_value: U256,
+    pub original_value: GarbledUint256,
     /// Present value of the storage slot.
-    pub present_value: U256,
+    pub present_value: GarbledUint256,
     /// Represents if the storage slot is cold.
     pub is_cold: bool,
 }
 
 impl EvmStorageSlot {
     /// Creates a new _unchanged_ `EvmStorageSlot` for the given value.
-    pub fn new(original: U256) -> Self {
+    pub fn new(original: GarbledUint256) -> Self {
         Self {
-            original_value: original,
+            original_value: original.clone(),
             present_value: original,
             is_cold: false,
         }
     }
 
     /// Creates a new _changed_ `EvmStorageSlot`.
-    pub fn new_changed(original_value: U256, present_value: U256) -> Self {
+    pub fn new_changed(original_value: GarbledUint256, present_value: GarbledUint256) -> Self {
         Self {
             original_value,
             present_value,
@@ -205,13 +206,13 @@ impl EvmStorageSlot {
     }
 
     /// Returns the original value of the storage slot.
-    pub fn original_value(&self) -> U256 {
-        self.original_value
+    pub fn original_value(&self) -> GarbledUint256 {
+        self.original_value.clone()
     }
 
     /// Returns the current value of the storage slot.
-    pub fn present_value(&self) -> U256 {
-        self.present_value
+    pub fn present_value(&self) -> GarbledUint256 {
+        self.present_value.clone()
     }
 
     /// Marks the storage slot as cold.
@@ -228,17 +229,18 @@ impl EvmStorageSlot {
 #[cfg(test)]
 mod tests {
     use crate::Account;
-    use primitives::{KECCAK_EMPTY, U256};
+    use compute::uint::GarbledUint256;
+    use primitives::KECCAK_EMPTY;
 
     #[test]
     fn account_is_empty_balance() {
         let mut account = Account::default();
         assert!(account.is_empty());
 
-        account.info.balance = U256::from(1);
+        account.info.balance = GarbledUint256::from(1_u128);
         assert!(!account.is_empty());
 
-        account.info.balance = U256::ZERO;
+        account.info.balance = GarbledUint256::zero();
         assert!(account.is_empty());
     }
 

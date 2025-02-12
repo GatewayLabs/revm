@@ -2,6 +2,7 @@ use super::{
     reverts::AccountInfoRevert, AccountRevert, AccountStatus, RevertToSlot, StorageSlot,
     StorageWithOriginalValues, TransitionAccount,
 };
+use compute::uint::GarbledUint256;
 use primitives::{HashMap, U256};
 use state::AccountInfo;
 
@@ -53,13 +54,13 @@ impl BundleAccount {
 
     /// Return storage slot if it exists.
     ///
-    /// In case we know that account is newly created or destroyed, return `Some(U256::ZERO)`
-    pub fn storage_slot(&self, slot: U256) -> Option<U256> {
-        let slot = self.storage.get(&slot).map(|s| s.present_value);
+    /// In case we know that account is newly created or destroyed, return `Some(GarbledUint256::zero())`
+    pub fn storage_slot(&self, slot: U256) -> Option<GarbledUint256> {
+        let slot = self.storage.get(&slot).map(|s| s.present_value.clone());
         if slot.is_some() {
             slot
         } else if self.status.is_storage_known() {
-            Some(U256::ZERO)
+            Some(GarbledUint256::zero())
         } else {
             None
         }
@@ -99,7 +100,7 @@ impl BundleAccount {
                 } else {
                     // set all storage to zero but preserve original values.
                     self.storage.iter_mut().for_each(|(_, v)| {
-                        v.present_value = U256::ZERO;
+                        v.present_value = GarbledUint256::zero();
                     });
                     return false;
                 }
@@ -114,8 +115,8 @@ impl BundleAccount {
                     // if storage is not present set original value as current value.
                     self.storage
                         .entry(key)
-                        .or_insert(StorageSlot::new(value))
-                        .present_value = value;
+                        .or_insert(StorageSlot::new(value.clone()))
+                        .present_value = value.clone();
                 }
                 RevertToSlot::Destroyed => {
                     // if it was destroyed this means that storage was created and we need to remove it.
@@ -141,7 +142,10 @@ impl BundleAccount {
             |this_storage: &mut StorageWithOriginalValues,
              storage_update: StorageWithOriginalValues| {
                 for (key, value) in storage_update {
-                    this_storage.entry(key).or_insert(value).present_value = value.present_value;
+                    this_storage
+                        .entry(key)
+                        .or_insert(value.clone())
+                        .present_value = value.clone().present_value;
                 }
             };
 
@@ -151,7 +155,10 @@ impl BundleAccount {
                     .iter()
                     .filter(|s| s.1.is_changed())
                     .map(|(key, value)| {
-                        (*key, RevertToSlot::Some(value.previous_or_original_value))
+                        (
+                            *key,
+                            RevertToSlot::Some(value.clone().previous_or_original_value),
+                        )
                     })
                     .collect()
             };

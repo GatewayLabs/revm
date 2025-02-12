@@ -1,4 +1,5 @@
 use crate::{interpreter::StackValueData, Host, SStoreResult, SelfDestructResult};
+use compute::uint::GarbledUint256;
 use derive_where::derive_where;
 use primitives::{hash_map::Entry, Address, Bytes, HashMap, Log, B256, KECCAK_EMPTY, U256};
 use std::vec::Vec;
@@ -16,8 +17,8 @@ where
     EvmWiringT: EvmWiring,
 {
     pub env: Env<EvmWiringT::Block, EvmWiringT::Transaction>,
-    pub storage: HashMap<U256, U256>,
-    pub transient_storage: HashMap<U256, U256>,
+    pub storage: HashMap<U256, GarbledUint256>,
+    pub transient_storage: HashMap<U256, GarbledUint256>,
     pub log: Vec<Log>,
 }
 
@@ -71,7 +72,11 @@ where
     }
 
     #[inline]
+<<<<<<< Updated upstream
     fn balance(&mut self, _address: Address) -> Option<StateLoad<U256>> {
+=======
+    fn balance(&mut self, _address: Address) -> Option<StateLoad<GarbledUint256>> {
+>>>>>>> Stashed changes
         Some(Default::default())
     }
 
@@ -86,12 +91,16 @@ where
     }
 
     #[inline]
+<<<<<<< Updated upstream
     fn sload(&mut self, _address: Address, index: U256) -> Option<StateLoad<U256>> {
+=======
+    fn sload(&mut self, _address: Address, index: U256) -> Option<StateLoad<GarbledUint256>> {
+>>>>>>> Stashed changes
         match self.storage.entry(index) {
-            Entry::Occupied(entry) => Some(StateLoad::new((*entry.get()).into(), false)),
+            Entry::Occupied(entry) => Some(StateLoad::new(entry.get().clone(), false)),
             Entry::Vacant(entry) => {
-                entry.insert(U256::ZERO);
-                Some(StateLoad::new(U256::ZERO.into(), true))
+                entry.insert(GarbledUint256::zero());
+                Some(StateLoad::new(GarbledUint256::zero(), true))
             }
         }
     }
@@ -101,30 +110,39 @@ where
         &mut self,
         _address: Address,
         index: U256,
+<<<<<<< Updated upstream
         value: U256,
+=======
+        value: GarbledUint256,
+>>>>>>> Stashed changes
     ) -> Option<StateLoad<SStoreResult>> {
         let present = self.storage.insert(index, value.clone().into());
         Some(StateLoad {
             data: SStoreResult {
-                original_value: U256::ZERO.into(),
-                present_value: present.unwrap_or(U256::ZERO).into(),
-                new_value: value.into(),
+                original_value: GarbledUint256::zero(),
+                present_value: present.clone().unwrap_or(GarbledUint256::zero()),
+                new_value: value,
             },
             is_cold: present.is_none(),
         })
     }
 
     #[inline]
-    fn tload(&mut self, _address: Address, index: U256) -> U256 {
+    fn tload(&mut self, _address: Address, index: U256) -> GarbledUint256 {
         self.transient_storage
             .get(&index)
-            .copied()
+            .cloned()
             .unwrap_or_default()
     }
 
     #[inline]
+<<<<<<< Updated upstream
     fn tstore(&mut self, _address: Address, index: U256, value: U256) {
         self.transient_storage.insert(index, value.into());
+=======
+    fn tstore(&mut self, _address: Address, index: U256, value: GarbledUint256) {
+        self.transient_storage.insert(index, value);
+>>>>>>> Stashed changes
     }
 
     #[inline]

@@ -498,7 +498,7 @@ mod test {
             .modify_db(|db| {
                 db.insert_account_info(
                     to_addr,
-                    AccountInfo::new(U256::from(1_000_000), 0, code_hash, code),
+                    AccountInfo::new(1_000_000_u128.into(), 0, code_hash, code),
                 )
             })
             .modify_tx_env(|tx| {

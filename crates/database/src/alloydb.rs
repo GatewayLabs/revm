@@ -4,8 +4,9 @@ use alloy_provider::{
     Network, Provider,
 };
 use alloy_transport::{Transport, TransportError};
+use compute::uint::GarbledUint256;
 use database_interface::async_db::DatabaseAsyncRef;
-use primitives::{Address, B256, U256};
+use primitives::{ruint_to_garbled_uint, Address, B256, U256};
 use state::{AccountInfo, Bytecode};
 
 /// An alloy-powered REVM [database_interface::Database].
@@ -60,7 +61,12 @@ impl<T: Transport + Clone, N: Network, P: Provider<T, N>> DatabaseAsyncRef for A
         let code_hash = code.hash_slow();
         let nonce = nonce?;
 
-        Ok(Some(AccountInfo::new(balance, nonce, code_hash, code)))
+        Ok(Some(AccountInfo::new(
+            ruint_to_garbled_uint(&balance),
+            nonce,
+            code_hash,
+            code,
+        )))
     }
 
     async fn block_hash_async_ref(&self, number: u64) -> Result<B256, Self::Error> {
@@ -78,11 +84,17 @@ impl<T: Transport + Clone, N: Network, P: Provider<T, N>> DatabaseAsyncRef for A
         // This is not needed, as the code is already loaded with basic_ref
     }
 
-    async fn storage_async_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.provider
+    async fn storage_async_ref(
+        &self,
+        address: Address,
+        index: U256,
+    ) -> Result<GarbledUint256, Self::Error> {
+        let value = self
+            .provider
             .get_storage_at(address, index)
             .block_id(self.block_number)
-            .await
+            .await?;
+        Ok(ruint_to_garbled_uint(&value))
     }
 }
 

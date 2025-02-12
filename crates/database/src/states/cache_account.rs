@@ -2,6 +2,7 @@ use super::{
     plain_account::PlainStorage, AccountStatus, BundleAccount, PlainAccount,
     StorageWithOriginalValues, TransitionAccount,
 };
+use compute::uint::GarbledUint256;
 use primitives::{HashMap, U256};
 use state::AccountInfo;
 
@@ -18,7 +19,7 @@ impl From<BundleAccount> for CacheAccount {
         let storage = account
             .storage
             .iter()
-            .map(|(k, v)| (*k, v.present_value))
+            .map(|(k, v)| (*k, v.present_value.clone()))
             .collect();
         let plain_account = account
             .account_info()
@@ -92,7 +93,7 @@ impl CacheAccount {
     }
 
     /// Return storage slot if it exist.
-    pub fn storage_slot(&self, slot: U256) -> Option<U256> {
+    pub fn storage_slot(&self, slot: U256) -> Option<GarbledUint256> {
         self.account
             .as_ref()
             .and_then(|a| a.storage.get(&slot).cloned())
@@ -122,7 +123,10 @@ impl CacheAccount {
             .unwrap_or_default();
         self.status = self.status.on_touched_created_pre_eip161(had_no_info)?;
 
-        let plain_storage = storage.iter().map(|(k, v)| (*k, v.present_value)).collect();
+        let plain_storage = storage
+            .iter()
+            .map(|(k, v)| (*k, v.present_value.clone()))
+            .collect();
         let previous_info = self.account.take().map(|a| a.info);
 
         self.account = Some(PlainAccount::new_empty_with_storage(plain_storage));
@@ -203,7 +207,7 @@ impl CacheAccount {
 
         let new_bundle_storage = new_storage
             .iter()
-            .map(|(k, s)| (*k, s.present_value))
+            .map(|(k, s)| (*k, s.present_value.clone()))
             .collect();
 
         self.status = self.status.on_created();
@@ -231,7 +235,7 @@ impl CacheAccount {
             return None;
         }
         let (_, transition) = self.account_info_change(|info| {
-            info.balance = info.balance.saturating_add(U256::from(balance));
+            info.balance = info.balance.clone() + balance.into();
         });
         Some(transition)
     }
@@ -270,8 +274,8 @@ impl CacheAccount {
     /// Used for DAO hardfork transition.
     pub fn drain_balance(&mut self) -> (u128, TransitionAccount) {
         self.account_info_change(|info| {
-            let output = info.balance;
-            info.balance = U256::ZERO;
+            let output = info.balance.clone();
+            info.balance = GarbledUint256::zero();
             output.try_into().unwrap()
         })
     }
@@ -288,7 +292,7 @@ impl CacheAccount {
             (None, Default::default())
         };
 
-        this_storage.extend(storage.iter().map(|(k, s)| (*k, s.present_value)));
+        this_storage.extend(storage.iter().map(|(k, s)| (*k, s.present_value.clone())));
         let changed_account = PlainAccount {
             info: new,
             storage: this_storage,

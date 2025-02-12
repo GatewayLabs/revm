@@ -1,4 +1,4 @@
-use compute::prelude::WRK17CircuitBuilder;
+use compute::uint::GarbledUint256;
 use core::ops::{Deref, DerefMut};
 use primitives::{Address, Bytes, Log, B256, U256};
 
@@ -24,7 +24,11 @@ pub trait Host {
     fn block_hash(&mut self, number: u64) -> Option<B256>;
 
     /// Get balance of `address` and if the account is cold.
+<<<<<<< Updated upstream
     fn balance(&mut self, address: Address) -> Option<StateLoad<U256>>;
+=======
+    fn balance(&mut self, address: Address) -> Option<StateLoad<GarbledUint256>>;
+>>>>>>> Stashed changes
 
     /// Get code of `address` and if the account is cold.
     fn code(&mut self, address: Address) -> Option<Eip7702CodeLoad<Bytes>>;
@@ -33,7 +37,11 @@ pub trait Host {
     fn code_hash(&mut self, address: Address) -> Option<Eip7702CodeLoad<B256>>;
 
     /// Get storage value of `address` at `index` and if the account is cold.
+<<<<<<< Updated upstream
     fn sload(&mut self, address: Address, index: U256) -> Option<StateLoad<U256>>;
+=======
+    fn sload(&mut self, address: Address, index: U256) -> Option<StateLoad<GarbledUint256>>;
+>>>>>>> Stashed changes
 
     /// Set storage value of account address at index.
     ///
@@ -42,14 +50,22 @@ pub trait Host {
         &mut self,
         address: Address,
         index: U256,
+<<<<<<< Updated upstream
         value: U256,
+=======
+        value: GarbledUint256,
+>>>>>>> Stashed changes
     ) -> Option<StateLoad<SStoreResult>>;
 
     /// Get the transient storage value of `address` at `index`.
-    fn tload(&mut self, address: Address, index: U256) -> U256;
+    fn tload(&mut self, address: Address, index: U256) -> GarbledUint256;
 
     /// Set the transient storage value of `address` at `index`.
+<<<<<<< Updated upstream
     fn tstore(&mut self, address: Address, index: U256, value: U256);
+=======
+    fn tstore(&mut self, address: Address, index: U256, value: GarbledUint256);
+>>>>>>> Stashed changes
 
     /// Emit a log owned by `address` with given `LogData`.
     fn log(&mut self, log: Log);
@@ -67,11 +83,19 @@ pub trait Host {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SStoreResult {
     /// Value of the storage when it is first read
+<<<<<<< Updated upstream
     pub original_value: U256,
     /// Current value of the storage
     pub present_value: U256,
     /// New value that is set
     pub new_value: U256,
+=======
+    pub original_value: GarbledUint256,
+    /// Current value of the storage
+    pub present_value: GarbledUint256,
+    /// New value that is set
+    pub new_value: GarbledUint256,
+>>>>>>> Stashed changes
 }
 
 impl SStoreResult {
@@ -96,19 +120,31 @@ impl SStoreResult {
     /// Returns `true` if the original value is zero.
     #[inline]
     pub fn is_original_zero(&self) -> bool {
+<<<<<<< Updated upstream
         self.original_value.is_zero()
+=======
+        self.original_value == GarbledUint256::zero()
+>>>>>>> Stashed changes
     }
 
     /// Returns `true` if the present value is zero.
     #[inline]
     pub fn is_present_zero(&self) -> bool {
+<<<<<<< Updated upstream
         self.present_value.is_zero()
+=======
+        self.present_value == GarbledUint256::zero()
+>>>>>>> Stashed changes
     }
 
     /// Returns `true` if the new value is zero.
     #[inline]
     pub fn is_new_zero(&self) -> bool {
+<<<<<<< Updated upstream
         self.new_value.is_zero()
+=======
+        self.new_value == GarbledUint256::zero()
+>>>>>>> Stashed changes
     }
 }
 

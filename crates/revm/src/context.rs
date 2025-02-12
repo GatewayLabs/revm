@@ -2,6 +2,7 @@ mod context_precompiles;
 pub(crate) mod evm_context;
 mod inner_evm_context;
 
+use compute::uint::GarbledUint256;
 pub use context_precompiles::{
     ContextPrecompile, ContextPrecompiles, ContextStatefulPrecompile, ContextStatefulPrecompileArc,
     ContextStatefulPrecompileBox, ContextStatefulPrecompileMut,
@@ -121,7 +122,7 @@ impl<EvmWiringT: EvmWiring> Host for Context<EvmWiringT> {
             .ok()
     }
 
-    fn balance(&mut self, address: Address) -> Option<StateLoad<U256>> {
+    fn balance(&mut self, address: Address) -> Option<StateLoad<GarbledUint256>> {
         self.evm
             .balance(address)
             .map_err(|e| self.evm.error = Err(e))
@@ -142,7 +143,7 @@ impl<EvmWiringT: EvmWiring> Host for Context<EvmWiringT> {
             .ok()
     }
 
-    fn sload(&mut self, address: Address, index: U256) -> Option<StateLoad<U256>> {
+    fn sload(&mut self, address: Address, index: U256) -> Option<StateLoad<GarbledUint256>> {
         self.evm
             .sload(address, index)
             .map_err(|e| self.evm.error = Err(e))
@@ -153,7 +154,7 @@ impl<EvmWiringT: EvmWiring> Host for Context<EvmWiringT> {
         &mut self,
         address: Address,
         index: U256,
-        value: U256,
+        value: GarbledUint256,
     ) -> Option<StateLoad<SStoreResult>> {
         self.evm
             .sstore(address, index, value)
@@ -161,11 +162,11 @@ impl<EvmWiringT: EvmWiring> Host for Context<EvmWiringT> {
             .ok()
     }
 
-    fn tload(&mut self, address: Address, index: U256) -> U256 {
+    fn tload(&mut self, address: Address, index: U256) -> GarbledUint256 {
         self.evm.tload(address, index)
     }
 
-    fn tstore(&mut self, address: Address, index: U256, value: U256) {
+    fn tstore(&mut self, address: Address, index: U256, value: GarbledUint256) {
         self.evm.tstore(address, index, value)
     }
 

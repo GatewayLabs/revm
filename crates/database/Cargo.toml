@@ -27,6 +27,7 @@ primitives.workspace = true
 database-interface.workspace = true
 wiring.workspace = true
 bytecode.workspace = true
+compute.workspace = true
 
 auto_impl = "1.2"
 

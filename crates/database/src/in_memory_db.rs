@@ -1,3 +1,4 @@
+use compute::uint::GarbledUint256;
 use core::convert::Infallible;
 use database_interface::{Database, DatabaseCommit, DatabaseRef, EmptyDB};
 use primitives::{hash_map::Entry, Address, HashMap, Log, B256, KECCAK_EMPTY, U256};
@@ -105,7 +106,7 @@ impl<ExtDB: DatabaseRef> CacheDB<ExtDB> {
         &mut self,
         address: Address,
         slot: U256,
-        value: U256,
+        value: GarbledUint256,
     ) -> Result<(), ExtDB::Error> {
         let account = self.load_account(address)?;
         account.storage.insert(slot, value);
@@ -116,7 +117,7 @@ impl<ExtDB: DatabaseRef> CacheDB<ExtDB> {
     pub fn replace_account_storage(
         &mut self,
         address: Address,
-        storage: HashMap<U256, U256>,
+        storage: HashMap<U256, GarbledUint256>,
     ) -> Result<(), ExtDB::Error> {
         let account = self.load_account(address)?;
         account.account_state = AccountState::StorageCleared;
@@ -195,21 +196,21 @@ impl<ExtDB: DatabaseRef> Database for CacheDB<ExtDB> {
     /// Get the value in an account's storage slot.
     ///
     /// It is assumed that account is already loaded.
-    fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
+    fn storage(&mut self, address: Address, index: U256) -> Result<GarbledUint256, Self::Error> {
         match self.accounts.entry(address) {
             Entry::Occupied(mut acc_entry) => {
                 let acc_entry = acc_entry.get_mut();
                 match acc_entry.storage.entry(index) {
-                    Entry::Occupied(entry) => Ok(*entry.get()),
+                    Entry::Occupied(entry) => Ok(entry.get().clone()),
                     Entry::Vacant(entry) => {
                         if matches!(
                             acc_entry.account_state,
                             AccountState::StorageCleared | AccountState::NotExisting
                         ) {
-                            Ok(U256::ZERO)
+                            Ok(GarbledUint256::zero())
                         } else {
                             let slot = self.db.storage_ref(address, index)?;
-                            entry.insert(slot);
+                            entry.insert(slot.clone());
                             Ok(slot)
                         }
                     }
@@ -221,10 +222,10 @@ impl<ExtDB: DatabaseRef> Database for CacheDB<ExtDB> {
                 let (account, value) = if info.is_some() {
                     let value = self.db.storage_ref(address, index)?;
                     let mut account: DbAccount = info.into();
-                    account.storage.insert(index, value);
+                    account.storage.insert(index, value.clone());
                     (account, value)
                 } else {
-                    (info.into(), U256::ZERO)
+                    (info.into(), GarbledUint256::zero())
                 };
                 acc_entry.insert(account);
                 Ok(value)
@@ -261,16 +262,16 @@ impl<ExtDB: DatabaseRef> DatabaseRef for CacheDB<ExtDB> {
         }
     }
 
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+    fn storage_ref(&self, address: Address, index: U256) -> Result<GarbledUint256, Self::Error> {
         match self.accounts.get(&address) {
             Some(acc_entry) => match acc_entry.storage.get(&index) {
-                Some(entry) => Ok(*entry),
+                Some(entry) => Ok(entry.clone()),
                 None => {
                     if matches!(
                         acc_entry.account_state,
                         AccountState::StorageCleared | AccountState::NotExisting
                     ) {
-                        Ok(U256::ZERO)
+                        Ok(GarbledUint256::zero())
                     } else {
                         self.db.storage_ref(address, index)
                     }
@@ -295,7 +296,7 @@ pub struct DbAccount {
     /// If account is selfdestructed or newly created, storage will be cleared.
     pub account_state: AccountState,
     /// storage slots
-    pub storage: HashMap<U256, U256>,
+    pub storage: HashMap<U256, GarbledUint256>,
 }
 
 impl DbAccount {
@@ -377,7 +378,7 @@ impl Database for BenchmarkDB {
         if address == Address::ZERO {
             return Ok(Some(AccountInfo {
                 nonce: 1,
-                balance: U256::from(10000000),
+                balance: 10000000_u128.into(),
                 code: Some(self.0.clone()),
                 code_hash: self.1,
             }));
@@ -385,7 +386,7 @@ impl Database for BenchmarkDB {
         if address == Address::with_last_byte(1) {
             return Ok(Some(AccountInfo {
                 nonce: 0,
-                balance: U256::from(10000000),
+                balance: 10000000_u128.into(),
                 code: None,
                 code_hash: KECCAK_EMPTY,
             }));
@@ -399,8 +400,8 @@ impl Database for BenchmarkDB {
     }
 
     /// Get storage value of address at index.
-    fn storage(&mut self, _address: Address, _index: U256) -> Result<U256, Self::Error> {
-        Ok(U256::default())
+    fn storage(&mut self, _address: Address, _index: U256) -> Result<GarbledUint256, Self::Error> {
+        Ok(GarbledUint256::default())
     }
 
     // History related
@@ -412,6 +413,7 @@ impl Database for BenchmarkDB {
 #[cfg(test)]
 mod tests {
     use super::{CacheDB, EmptyDB};
+    use compute::uint::GarbledUint256;
     use database_interface::Database;
     use primitives::{Address, HashMap, U256};
     use state::AccountInfo;
@@ -429,10 +431,10 @@ mod tests {
             },
         );
 
-        let (key, value) = (U256::from(123), U256::from(456));
+        let (key, value) = (U256::from(123), GarbledUint256::from(456_u128));
         let mut new_state = CacheDB::new(init_state);
         new_state
-            .insert_account_storage(account, key, value)
+            .insert_account_storage(account, key, value.clone())
             .unwrap();
 
         assert_eq!(new_state.basic(account).unwrap().unwrap().nonce, nonce);
@@ -452,19 +454,19 @@ mod tests {
             },
         );
 
-        let (key0, value0) = (U256::from(123), U256::from(456));
-        let (key1, value1) = (U256::from(789), U256::from(999));
+        let (key0, value0) = (U256::from(123), GarbledUint256::from(456_u128));
+        let (key1, value1) = (U256::from(789), GarbledUint256::from(999_u128));
         init_state
             .insert_account_storage(account, key0, value0)
             .unwrap();
 
         let mut new_state = CacheDB::new(init_state);
         new_state
-            .replace_account_storage(account, HashMap::from_iter([(key1, value1)]))
+            .replace_account_storage(account, HashMap::from_iter([(key1, value1.clone())]))
             .unwrap();
 
         assert_eq!(new_state.basic(account).unwrap().unwrap().nonce, nonce);
-        assert_eq!(new_state.storage(account, key0), Ok(U256::ZERO));
+        assert_eq!(new_state.storage(account, key0), Ok(GarbledUint256::zero()));
         assert_eq!(new_state.storage(account, key1), Ok(value1));
     }
 

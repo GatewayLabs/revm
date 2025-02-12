@@ -26,6 +26,7 @@ all = "warn"
 primitives.workspace = true
 bytecode.workspace = true
 specification.workspace = true
+compute.workspace = true
 
 # misc
 bitflags = { version = "2.6.0", default-features = false }

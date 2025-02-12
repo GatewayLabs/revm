@@ -27,7 +27,8 @@ pub fn balance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host
             20
         }
     );
-    push!(interpreter, balance.data.into());
+    let balance_gates = interpreter.circuit_builder.input(&balance.data);
+    push!(interpreter, balance_gates.into());
 }
 
 /// EIP-1884: Repricing for trie-size-dependent opcodes
@@ -38,7 +39,12 @@ pub fn selfbalance<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, 
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
     };
+<<<<<<< Updated upstream
     push!(interpreter, balance.data.into());
+=======
+    let balance_gates = interpreter.circuit_builder.input(&balance.data);
+    push!(interpreter, balance_gates.into());
+>>>>>>> Stashed changes
 }
 
 pub fn extcodesize<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
@@ -125,7 +131,8 @@ pub fn sload<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: 
         return;
     };
     gas!(interpreter, gas::sload_cost(SPEC::SPEC_ID, value.is_cold));
-    *index = value.data.into();
+    let value_gates = interpreter.circuit_builder.input(&value.data);
+    *index = value_gates.into();
 }
 
 pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: &mut H) {
@@ -135,7 +142,11 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     let Some(state_load) = host.sstore(
         interpreter.contract.target_address,
         index.into(),
+<<<<<<< Updated upstream
         value.evaluate(&mut interpreter.circuit_builder.borrow()),
+=======
+        value.evaluate(&mut interpreter.circuit_builder),
+>>>>>>> Stashed changes
     ) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
@@ -168,7 +179,11 @@ pub fn tstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     host.tstore(
         interpreter.contract.target_address,
         index.into(),
+<<<<<<< Updated upstream
         value.evaluate(&mut interpreter.circuit_builder.borrow()),
+=======
+        value.evaluate(&mut interpreter.circuit_builder),
+>>>>>>> Stashed changes
     );
 }
 
@@ -180,9 +195,8 @@ pub fn tload<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host: 
 
     pop_top!(interpreter, index);
 
-    *index = host
-        .tload(interpreter.contract.target_address, index.clone().into())
-        .into();
+    let value_gates = host.tload(interpreter.contract.target_address, index.clone().into());
+    *index = interpreter.circuit_builder.input(&value_gates).into();
 }
 
 pub fn log<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, host: &mut H) {
