@@ -6,8 +6,7 @@ pub(crate) mod shared_memory;
 mod stack;
 
 use bytecode::opcode::OpCode;
-use compute::prelude::GateIndexVec;
-use compute::prelude::WRK17CircuitBuilder;
+use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
@@ -23,9 +22,9 @@ use core::cmp::min;
 use encryption::Keypair;
 use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-
 /// EVM bytecode interpreter.
 #[derive(Debug)]
 pub struct Interpreter {
@@ -71,10 +70,7 @@ pub struct Interpreter {
     pub next_action: InterpreterAction,
     pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
-    /// Next program counter for private branching
-    pub next_pc: Option<GateIndexVec>,
-    /// Flag indicating if we need to handle a private jump
-    pub handle_private_jump: bool,
+    pub program_count_mapping: HashMap<usize, GateIndexVec>,
 }
 
 impl<'cb> Default for Interpreter {
@@ -120,8 +116,7 @@ impl Interpreter {
             circuit_builder,
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
-            next_pc: None,
-            handle_private_jump: false,
+            program_count_mapping: HashMap::new(),
         }
     }
 
@@ -430,6 +425,7 @@ impl Interpreter {
         self.next_action = InterpreterAction::None;
         self.shared_memory = shared_memory;
         self.private_memory = private_memory;
+
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);

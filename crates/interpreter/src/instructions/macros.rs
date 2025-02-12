@@ -139,6 +139,13 @@ macro_rules! resize_private_memory {
     };
 }
 
+#[macro_export]
+macro_rules! insert_pc_mapping {
+    ($interp:expr, $pc:expr, $wire:expr) => {
+        $interp.program_count_mapping.insert($pc, $wire);
+    };
+}
+
 /// Pops `Address` values from the stack. Fails the instruction if the stack is too small.
 #[macro_export]
 macro_rules! pop_address {

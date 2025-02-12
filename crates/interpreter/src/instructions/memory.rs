@@ -23,7 +23,11 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             PrivateMemoryValue::Private(val) => StackValueData::Private(val),
             _ => panic!("Cannot mload invalid PrivateMemoryValue type"),
         };
-        *top = out;
+        *top = out.clone();
+        let StackValueData::Private(result) = out else {
+            panic!("Result is not a private value");
+        };
+        insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
     } else {
         *top = StackValueData::Public(shared_mem);
     }

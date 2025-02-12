@@ -18,7 +18,12 @@ pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.lt(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -29,7 +34,12 @@ pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.gt(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 // TODO: Implement in garbled circuits
@@ -54,7 +64,12 @@ pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.eq(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -82,7 +97,15 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     };
     drop(cb);
 
-    *op1 = result;
+    *op1 = result.clone();
+    let StackValueData::Private(result) = result else {
+        panic!("Result is not a private value");
+    };
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -93,7 +116,12 @@ pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.and(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -104,7 +132,12 @@ pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.or(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -115,7 +148,12 @@ pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.xor(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -126,7 +164,12 @@ pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.not(&garbled_op1);
     drop(cb);
 
-    *op1 = StackValueData::Private(GateIndexVec::from(result));
+    *op1 = StackValueData::Private(GateIndexVec::from(result.clone()));
+    insert_pc_mapping!(
+        interpreter,
+        interpreter.program_counter(),
+        GateIndexVec::from(result)
+    );
 }
 
 // TODO: Implement in garbled circuits
