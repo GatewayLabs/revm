@@ -3,33 +3,37 @@ use crate::{
     gas,
     instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
     interpreter::StackValueData,
-    Host, Interpreter,
+    push_private_memory, Host, Interpreter,
 };
-use compute::prelude::{CircuitExecutor, GateIndexVec};
+use compute::{
+    operations::circuits::builder::GateIndex,
+    prelude::{CircuitExecutor, GateIndexVec},
+    uint::GarbledUint256,
+};
 use core::cmp::Ordering;
 use primitives::U256;
 use specification::hardfork::Spec;
 
 pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.lt(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result.into(), op2);
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.gt(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result.into(), op2);
 }
 
 // TODO: Implement in garbled circuits
@@ -48,24 +52,24 @@ pub fn sgt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.eq(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result.into(), op2);
 }
 
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, op1);
 
-    let zero_bits = vec![false; 256];
-    let zero = compute::uint::GarbledUint::<256>::new(zero_bits);
+    let garbled_zero = GarbledUint256::zero();
     let mut cb = interpreter.circuit_builder.borrow_mut();
-    let zero_gates = cb.input(&zero);
+    let zero_gates = cb.input(&garbled_zero);
 
+    // NOTE: maybe easier to check 0 as public and push zero_gates instead of circuit overhead
     let result = match op1 {
         StackValueData::Public(value) => {
             let garbled_gates = StackValueData::Public(*value).to_garbled_value(&mut cb);
@@ -82,51 +86,55 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     };
     drop(cb);
 
-    *op1 = result;
+    push_private_memory!(interpreter, result.into(), op1);
 }
 
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.and(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    // *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result, op2);
 }
 
 pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.or(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    // *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result, op2);
 }
 
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.xor(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    *op2 = StackValueData::Private(GateIndexVec::from(result));
+    // *op2 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result, op2);
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, op1, garbled_op1);
+    pop_top_private!(interpreter, op1, garbled_op1);
 
     let mut cb = interpreter.circuit_builder.borrow_mut();
     let result = cb.not(&garbled_op1);
     drop(cb);
 
-    *op1 = StackValueData::Private(GateIndexVec::from(result));
+    // *op1 = StackValueData::Private(GateIndexVec::from(result));
+    push_private_memory!(interpreter, result, op1);
 }
 
 // TODO: Implement in garbled circuits

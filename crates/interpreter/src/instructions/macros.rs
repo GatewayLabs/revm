@@ -274,6 +274,87 @@ macro_rules! pop_top {
     };
 }
 
+/// Pops values from the stack and determines if it is a PrivateRef
+#[macro_export]
+macro_rules! pop_top_private {
+    ($interp:expr, $x1:ident, $x1_priv:ident) => {
+        use crate::interpreter::private_memory::{
+            is_u256_private_tag, PrivateMemoryValue, PrivateRef,
+        };
+        pop_top!($interp, $x1);
+
+        let mut cb = $interp.circuit_builder.borrow_mut();
+        let val1 = match $x1 {
+            StackValueData::Public(x1) => {
+                if is_u256_private_tag(&x1) {
+                    $interp.private_memory.get(
+                        &PrivateRef::try_from(*x1)
+                            .expect("unable to load PrivateRef from x1: U256"),
+                    )
+                } else {
+                    let garbled_x1 = GarbledUint256::try_from(*x1)
+                        .expect("error constructing GarbledUint from Uint<256,4>");
+                    let x1_gates = cb.input(&garbled_x1);
+                    PrivateMemoryValue::Garbled(x1_gates)
+                }
+            }
+            _ => panic!("Unsupported StackValueData type"),
+        };
+        let PrivateMemoryValue::Garbled($x1_priv) = val1 else {
+            panic!("x1 is not PrivateMemoryValue::Garbled")
+        };
+
+        drop(cb);
+    };
+    ($interp:expr, $x1:ident, $x2:ident, $x1_priv:ident, $x2_priv:ident) => {
+        use crate::interpreter::private_memory::{
+            is_u256_private_tag, PrivateMemoryValue, PrivateRef,
+        };
+        pop_top!($interp, $x1, $x2);
+
+        let mut cb = $interp.circuit_builder.borrow_mut();
+        let val1 = match $x1 {
+            StackValueData::Public(x1) => {
+                if is_u256_private_tag(&x1) {
+                    $interp.private_memory.get(
+                        &PrivateRef::try_from(x1).expect("unable to load PrivateRef from x1: U256"),
+                    )
+                } else {
+                    let garbled_x1 = GarbledUint256::try_from(x1)
+                        .expect("error constructing GarbledUint from Uint<256,4>");
+                    let x1_gates = cb.input(&garbled_x1);
+                    PrivateMemoryValue::Garbled(x1_gates)
+                }
+            }
+            _ => panic!("Unsupported StackValueData type"),
+        };
+        let PrivateMemoryValue::Garbled($x1_priv) = val1 else {
+            panic!("x1 is not PrivateMemoryValue::Garbled")
+        };
+
+        let val2 = match $x2 {
+            StackValueData::Public(x2) => {
+                if is_u256_private_tag(&x2) {
+                    $interp.private_memory.get(
+                        &PrivateRef::try_from(*x2)
+                            .expect("unable to load PrivateRef from x2: U256"),
+                    )
+                } else {
+                    let garbled_x2 = GarbledUint256::try_from(*x2)
+                        .expect("error constructing GarbledUint from Uint<256,4>");
+                    let x2_gates = cb.input(&garbled_x2);
+                    PrivateMemoryValue::Garbled(x2_gates)
+                }
+            }
+            _ => panic!("Unsupported StackValueData type"),
+        };
+        let PrivateMemoryValue::Garbled($x2_priv) = val2 else {
+            panic!("x2 is not PrivateMemoryValue::Garbled")
+        };
+        drop(cb);
+    };
+}
+
 // Pops 'StackValueData' and 'GateIndexVec' values from the stack. Fails the instruction if the stack is too small.
 #[macro_export]
 macro_rules! pop_top_gates {

@@ -1,18 +1,39 @@
-use compute::operations::circuits::builder::GateIndex;
 use compute::prelude::GateIndexVec;
-use compute::uint::GarbledUint256;
 use core::fmt;
 use encryption::Ciphertext;
 use primitives::ruint::Uint;
-use primitives::U256;
+use primitives::{Bytes, U256};
 use std::hash::{Hash, Hasher};
 use std::vec::Vec;
+
+#[macro_export]
+macro_rules! push_private_memory {
+    ($interp: expr, $private_value: expr, $result: ident) => {
+        *$result = StackValueData::Public(
+            $interp
+                .private_memory
+                .push(
+                    crate::interpreter::private_memory::PrivateMemoryValue::Garbled($private_value),
+                )
+                .into(),
+        );
+    };
+}
 
 #[repr(C)]
 #[derive(Default, Copy, Clone)]
 pub struct PrivateRef {
     tag: [u8; 4],
     index: [u8; 28],
+}
+
+impl PrivateRef {
+    pub fn new(index: Uint<192, 3>) -> Self {
+        Self {
+            tag: DEFAULT_PRIVATE_REF_TAG.clone(),
+            index: index.to_le_bytes(),
+        }
+    }
 }
 
 const DEFAULT_PRIVATE_REF_TAG: &[u8; 4] = b"PRIV";
@@ -25,6 +46,20 @@ impl Into<Uint<256, 4>> for PrivateRef {
         bytes[4..].copy_from_slice(&self.index);
         U256::from_le_bytes(bytes)
     }
+}
+
+#[inline]
+pub(crate) fn is_bytes_private_tag(bytes: &Bytes) -> bool {
+    if bytes.len() < 4 {
+        return false;
+    } else {
+        return bytes[..4] == *DEFAULT_PRIVATE_REF_TAG;
+    }
+}
+
+#[inline]
+pub(crate) fn is_u256_private_tag(val: &U256) -> bool {
+    val.to_le_bytes::<32>()[..4] == *DEFAULT_PRIVATE_REF_TAG
 }
 
 #[inline]
@@ -73,14 +108,14 @@ impl TryFrom<Uint<256, 4>> for PrivateRef {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Eq, Clone, Debug)]
 pub enum PrivateMemoryValue {
-    Private(GateIndexVec),
+    Garbled(GateIndexVec),
     Encrypted(Ciphertext),
 }
 
 impl std::hash::Hash for PrivateMemoryValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            PrivateMemoryValue::Private(gate_index_vec) => {
+            PrivateMemoryValue::Garbled(gate_index_vec) => {
                 for gate_index in gate_index_vec.iter() {
                     gate_index.hash(state);
                 }
@@ -95,7 +130,7 @@ impl std::hash::Hash for PrivateMemoryValue {
 impl std::cmp::PartialEq for PrivateMemoryValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Private(l0), Self::Private(r0)) => l0 == r0,
+            (Self::Garbled(l0), Self::Garbled(r0)) => l0 == r0,
             (Self::Encrypted(l0), Self::Encrypted(r0)) => l0 == r0,
             _ => false,
         }
@@ -105,14 +140,14 @@ impl std::cmp::PartialEq for PrivateMemoryValue {
 impl PrivateMemoryValue {
     pub fn copy(&self) -> Self {
         match self {
-            Self::Private(gate_index_vec) => Self::Private(gate_index_vec.clone()),
+            Self::Garbled(gate_index_vec) => Self::Garbled(gate_index_vec.clone()),
             Self::Encrypted(ciphertext) => Self::Encrypted(ciphertext.clone()),
         }
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
         match self {
-            PrivateMemoryValue::Private(val) => {
+            PrivateMemoryValue::Garbled(val) => {
                 // GateIndexVec aliases Vec<GateIndex: u32>
                 val.iter().flat_map(|&x| x.to_le_bytes().to_vec()).collect()
             }
@@ -195,7 +230,7 @@ impl PrivateMemory {
     pub fn resize(&mut self, new_size: usize) {
         self.data.resize(
             self.last_checkpoint + new_size,
-            PrivateMemoryValue::Private(GateIndexVec::new(vec![0])),
+            PrivateMemoryValue::Garbled(GateIndexVec::new(vec![0])),
         );
     }
 
@@ -215,7 +250,7 @@ impl PrivateMemory {
     }
 
     #[inline]
-    pub fn get(&self, private_ref: PrivateRef) -> PrivateMemoryValue {
+    pub fn get(&self, private_ref: &PrivateRef) -> PrivateMemoryValue {
         let mut index_bytes = [0u8; 8];
         index_bytes.copy_from_slice(&private_ref.index[..8]);
         let index = usize::from_le_bytes(index_bytes);
@@ -239,11 +274,20 @@ impl PrivateMemory {
 #[cfg(test)]
 mod test {
     use crate::{
-        instructions::utility::ruint_to_garbled_uint,
-        interpreter::{private_memory::PrivateMemoryValue, PrivateMemory},
+        instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
+        interpreter::{
+            private_memory::{is_private_tag, is_u256_private_tag, PrivateMemoryValue},
+            PrivateMemory,
+        },
     };
-    use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
+    use compute::{
+        prelude::WRK17CircuitBuilder,
+        uint::{GarbledUint, GarbledUint256},
+    };
     use primitives::U256;
+
+    #[test]
+    fn test_private_ref() {}
 
     #[test]
     fn test_private_memory_push_and_get() {
@@ -253,14 +297,29 @@ mod test {
         let garbled_uint = ruint_to_garbled_uint(&U256::from(128_u8));
         let gate_index_vec = circuit_builder.input(&garbled_uint);
 
-        let private_ref1 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        let ref1 = memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
+        let ref2 = memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
 
-        match memory.get(private_ref1) {
-            PrivateMemoryValue::Encrypted(_) => panic!(""),
-            PrivateMemoryValue::Private(value) => {
+        let ref_as_u256: U256 = ref1.into();
+        assert!(is_u256_private_tag(&ref_as_u256));
+
+        match memory.get(&ref1) {
+            PrivateMemoryValue::Encrypted(_) => panic!("expected PrivateMemoryValue::Private"),
+            PrivateMemoryValue::Garbled(value) => {
                 assert_eq!(value.len(), gate_index_vec.len());
                 for i in 0..value.len() {
                     assert_eq!(value[i], gate_index_vec[i]);
+                }
+            }
+        }
+
+        match memory.get(&ref2) {
+            PrivateMemoryValue::Encrypted(_) => panic!("expected PrivateMemoryValue::Private"),
+            PrivateMemoryValue::Garbled(gates) => {
+                if let Ok(result) = circuit_builder.compile_and_execute::<256>(&gates) {
+                    assert!(garbled_uint_to_ruint(&result) == (U256::from(128_u8)));
+                } else {
+                    panic!("Unable to compute fetched memory")
                 }
             }
         }
@@ -275,7 +334,7 @@ mod test {
         let mut circuit_builder = WRK17CircuitBuilder::default();
         let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
 
-        memory.push(PrivateMemoryValue::Private(gate_index_vec));
+        memory.push(PrivateMemoryValue::Garbled(gate_index_vec));
 
         assert_eq!(memory.len(), 1);
         assert!(!memory.is_empty());
@@ -295,7 +354,7 @@ mod test {
         let mut circuit_builder = WRK17CircuitBuilder::default();
         let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
 
-        memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
 
         let copied_memory = memory.clone();
 
@@ -317,11 +376,11 @@ mod test {
         let gate_index_vec = circuit_builder.input(&GarbledUint256::zero());
 
         memory.new_context();
-        let private_ref1 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        let private_ref1 = memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
         assert_eq!(memory.len(), 1);
 
         memory.new_context();
-        let private_ref2 = memory.push(PrivateMemoryValue::Private(gate_index_vec.clone()));
+        let private_ref2 = memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
         assert_eq!(memory.len(), 1);
 
         memory.free_context();
