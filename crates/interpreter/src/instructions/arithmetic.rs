@@ -1,5 +1,4 @@
 use super::i256::{i256_div, i256_mod};
-use crate::insert_pc_mapping;
 use crate::{gas, interpreter::StackValueData, Host, Interpreter};
 use compute::prelude::CircuitExecutor;
 use primitives::U256;
@@ -17,7 +16,7 @@ pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     // Always save as StackDataValue::Private
     *op2 = StackValueData::Private(result.clone());
-    insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
+    // PC mapping no longer needed
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -30,7 +29,7 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         .mul(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result.clone());
-    insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
+    // PC mapping no longer needed
 }
 
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -43,7 +42,7 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         .sub(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result.clone());
-    insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
+    // PC mapping no longer needed
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -56,7 +55,7 @@ pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         .div(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result.clone());
-    insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
+    // PC mapping no longer needed
 }
 
 //TODO: Implement circuit for signed division
@@ -77,7 +76,7 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         .rem(&garbled_op1, &garbled_op2);
 
     *op2 = StackValueData::Private(result.clone());
-    insert_pc_mapping!(interpreter, interpreter.program_counter(), result);
+    // PC mapping no longer needed
 }
 
 //TODO: Implement circuit for signed modulo

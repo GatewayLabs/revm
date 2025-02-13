@@ -19,11 +19,7 @@ pub fn lt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
+    // PC mapping no longer needed
 }
 
 pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -35,11 +31,7 @@ pub fn gt<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
+    // PC mapping no longer needed
 }
 
 // TODO: Implement in garbled circuits
@@ -65,11 +57,7 @@ pub fn eq<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
+    // PC mapping no longer needed
 }
 
 pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -101,11 +89,6 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let StackValueData::Private(result) = result else {
         panic!("Result is not a private value");
     };
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
 }
 
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -117,11 +100,6 @@ pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
 }
 
 pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -133,11 +111,6 @@ pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
 }
 
 pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -149,11 +122,6 @@ pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op2 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
 }
 
 pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -165,11 +133,6 @@ pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     drop(cb);
 
     *op1 = StackValueData::Private(GateIndexVec::from(result.clone()));
-    insert_pc_mapping!(
-        interpreter,
-        interpreter.program_counter(),
-        GateIndexVec::from(result)
-    );
 }
 
 // TODO: Implement in garbled circuits
