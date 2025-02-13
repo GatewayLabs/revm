@@ -278,12 +278,12 @@ mod tests {
 
             lt(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, top, top_priv);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&top_priv)
                 .unwrap();
 
             assert_eq!(
@@ -341,12 +341,12 @@ mod tests {
 
             gt(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             assert_eq!(
@@ -404,12 +404,12 @@ mod tests {
 
             eq(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             assert_eq!(
@@ -461,14 +461,14 @@ mod tests {
 
             iszero(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             println!("Output indices: {:?}", output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             println!("Result: {:?}", garbled_uint_to_bool(&result));
@@ -514,12 +514,12 @@ mod tests {
 
             not(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             assert_eq!(
@@ -571,12 +571,12 @@ mod tests {
 
             bitand(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             assert_eq!(
@@ -639,12 +639,12 @@ mod tests {
 
             bitor(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             let actual = garbled_uint_to_ruint(&result);
@@ -716,12 +716,12 @@ mod tests {
 
             bitxor(&mut interpreter, &mut host);
 
-            let output_indices = interpreter.stack.pop().unwrap();
+            pop_top_private!(interpreter, output, output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
-                .compile_and_execute(&output_indices.into())
+                .compile_and_execute(&output_indices)
                 .unwrap();
 
             let actual = garbled_uint_to_ruint(&result);
