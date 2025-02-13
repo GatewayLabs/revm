@@ -196,7 +196,7 @@ mod tests {
         add(&mut interpreter, &mut host);
 
         let output_indices = interpreter.stack.pop().unwrap();
-        let private_ref = output_indices.evaluate(&interpreter.circuit_builder.borrow());
+        let private_ref = output_indices.evaluate(&interpreter);
 
         if !is_u256_private_tag(&private_ref) {
             panic!("private ref is not valid")

@@ -1,6 +1,6 @@
 use crate::{
     gas::{self, warm_cold_cost, warm_cold_cost_with_delegation, CALL_STIPEND},
-    interpreter::Interpreter,
+    interpreter::{private_memory::is_bytes_private_tag, Interpreter},
     Host, InstructionResult,
 };
 use core::cmp::min;
@@ -135,7 +135,7 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     let Some(state_load) = host.sstore(
         interpreter.contract.target_address,
         index.into(),
-        value.evaluate(&mut interpreter.circuit_builder.borrow()),
+        value.evaluate(&interpreter),
     ) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
@@ -168,7 +168,7 @@ pub fn tstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     host.tstore(
         interpreter.contract.target_address,
         index.into(),
-        value.evaluate(&mut interpreter.circuit_builder.borrow()),
+        value.evaluate(&interpreter),
     );
 }
 
@@ -203,6 +203,8 @@ pub fn log<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, host
         interpreter.instruction_result = InstructionResult::StackUnderflow;
         return;
     }
+
+    println!("log::is_private_ref: {}", is_bytes_private_tag(&data));
 
     let mut topics = Vec::with_capacity(N);
     for _ in 0..N {

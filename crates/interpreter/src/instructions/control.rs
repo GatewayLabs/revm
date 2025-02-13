@@ -2,7 +2,7 @@ use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
     gas,
     interpreter::{
-        private_memory::{is_private_tag, PrivateMemoryValue},
+        private_memory::{is_bytes_private_tag, is_private_tag, PrivateMemoryValue, PrivateRef},
         StackValueData,
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
@@ -287,27 +287,26 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
     // zero gas cost
     // gas!(interpreter, gas::ZERO);
     pop!(interpreter, offset, len);
-    let len = as_usize_or_fail!(
-        interpreter,
-        len.evaluate(&interpreter.circuit_builder.borrow())
-    );
+    let len = as_usize_or_fail!(interpreter, len.evaluate(&interpreter));
+    println!("return_inner::len: {}", len);
     // important: offset must be ignored if len is zeros
     let mut output = Bytes::default();
     if len != 0 {
-        let offset = as_usize_or_fail!(
-            interpreter,
-            offset.evaluate(&interpreter.circuit_builder.borrow())
-        );
+        let offset = as_usize_or_fail!(interpreter, offset.evaluate(&interpreter));
         resize_memory!(interpreter, offset, len);
 
         let shared_mem = interpreter.shared_memory.slice(offset, len);
-        if is_private_tag(shared_mem) {
+        println!(
+            "return_inner::is_private_ref: {}",
+            is_private_tag(&shared_mem)
+        );
+        if is_private_tag(&shared_mem) {
             let mut garbled_result: GarbledUint256 = GarbledUint256::default();
             match interpreter
                 .private_memory
-                .get(shared_mem.try_into().unwrap())
+                .get(&PrivateRef::try_from(shared_mem).unwrap())
             {
-                PrivateMemoryValue::Private(indices) => {
+                PrivateMemoryValue::Garbled(indices) => {
                     garbled_result = interpreter
                         .circuit_builder
                         .borrow()
@@ -323,6 +322,7 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
             output = shared_mem.to_vec().into()
         }
     }
+
     interpreter.instruction_result = instruction_result;
     interpreter.next_action = crate::InterpreterAction::Return {
         result: InterpreterResult {

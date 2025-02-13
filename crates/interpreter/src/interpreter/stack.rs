@@ -1,12 +1,11 @@
 use crate::{
-    instructions::utility::{garbled_int_to_ruint, garbled_uint_to_ruint, ruint_to_garbled_uint},
+    instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
     InstructionResult,
 };
 use compute::{
     prelude::{CircuitExecutor, GateIndexVec, WRK17CircuitBuilder},
-    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
+    uint::{GarbledUint, GarbledUint256},
 };
-use core::num;
 use core::{fmt, ptr};
 use encryption::{
     elgamal::{Ciphertext, ElGamalEncryption, Keypair},
@@ -15,6 +14,11 @@ use encryption::{
 use primitives::{FixedBytes, B256, U256};
 use serde::{Deserialize, Serialize};
 use std::vec::Vec;
+
+use super::{
+    private_memory::{is_u256_private_tag, PrivateMemoryValue, PrivateRef},
+    Interpreter,
+};
 
 /// EVM interpreter stack limit.
 pub const STACK_LIMIT: usize = 1024;
@@ -50,9 +54,26 @@ impl StackValueData {
         }
     }
 
-    pub fn evaluate(&self, builder: &WRK17CircuitBuilder) -> U256 {
+    pub fn evaluate(&self, interpreter: &Interpreter) -> U256 {
+        let builder = interpreter.circuit_builder.borrow();
         match self {
-            StackValueData::Public(val) => *val,
+            StackValueData::Public(val) => {
+                if is_u256_private_tag(val) {
+                    let val_private = interpreter.private_memory.get(
+                        &PrivateRef::try_from(*val)
+                            .expect("evaluate: unable to construct PrivateRef from U256"),
+                    );
+                    let PrivateMemoryValue::Garbled(gates) = val_private else {
+                        panic!("evaluate: unsupported PrivateMemoryValue type")
+                    };
+                    let result = builder
+                        .compile_and_execute(&gates)
+                        .expect("Failed to evaluate private value");
+                    garbled_uint_to_ruint(&result).into()
+                } else {
+                    *val
+                }
+            }
             StackValueData::Private(val) => {
                 let result = builder
                     .compile_and_execute(val)
@@ -88,21 +109,6 @@ impl StackValueData {
                 StackValueData::Encrypted(result)
             }
             _ => panic!("Cannot add different types of StackValueData"),
-        }
-    }
-
-    pub fn equals(&self, other: &Self, circuit_builder: Option<&mut WRK17CircuitBuilder>) -> bool {
-        match circuit_builder {
-            Some(builder) => {
-                let a_eval = self.evaluate(builder);
-                let b_eval = other.evaluate(builder);
-                a_eval == b_eval
-            }
-            None => match (self, other) {
-                (StackValueData::Public(a), StackValueData::Public(b)) => a == b,
-                (StackValueData::Encrypted(a), StackValueData::Encrypted(b)) => a == b,
-                _ => panic!("Cannot compare private values without circuit builder"),
-            },
         }
     }
 }
