@@ -278,9 +278,7 @@ macro_rules! pop_top {
 #[macro_export]
 macro_rules! pop_top_private {
     ($interp:expr, $x1:ident, $x1_priv:ident) => {
-        use crate::interpreter::private_memory::{
-            is_u256_private_ref, PrivateMemoryValue, PrivateRef,
-        };
+        use crate::interpreter::private_memory::PrivateMemoryValue;
         pop_top!($interp, $x1);
 
         let mut cb = $interp.circuit_builder.borrow_mut();
@@ -301,25 +299,18 @@ macro_rules! pop_top_private {
         drop(cb);
     };
     ($interp:expr, $x1:ident, $x2:ident, $x1_priv:ident, $x2_priv:ident) => {
-        use crate::interpreter::private_memory::{
-            is_u256_private_ref, PrivateMemoryValue, PrivateRef,
-        };
+        use crate::interpreter::private_memory::PrivateMemoryValue;
         pop_top!($interp, $x1, $x2);
 
         let mut cb = $interp.circuit_builder.borrow_mut();
         let val1 = match $x1 {
             StackValueData::Public(x1) => {
-                if is_u256_private_ref(&x1) {
-                    $interp.private_memory.get(
-                        &PrivateRef::try_from(x1).expect("unable to load PrivateRef from x1: U256"),
-                    )
-                } else {
-                    let garbled_x1 = GarbledUint256::try_from(x1)
-                        .expect("error constructing GarbledUint from Uint<256,4>");
-                    let x1_gates = cb.input(&garbled_x1);
-                    PrivateMemoryValue::Garbled(x1_gates)
-                }
+                let garbled_x1 = GarbledUint256::try_from(x1)
+                    .expect("error constructing GarbledUint from Uint<256,4>");
+                let x1_gates = cb.input(&garbled_x1);
+                PrivateMemoryValue::Garbled(x1_gates)
             }
+            StackValueData::Private(x1_ref) => $interp.private_memory.get(&x1_ref),
             _ => panic!("Unsupported StackValueData type"),
         };
         let PrivateMemoryValue::Garbled($x1_priv) = val1 else {
@@ -328,18 +319,12 @@ macro_rules! pop_top_private {
 
         let val2 = match $x2 {
             StackValueData::Public(x2) => {
-                if is_u256_private_ref(&x2) {
-                    $interp.private_memory.get(
-                        &PrivateRef::try_from(*x2)
-                            .expect("unable to load PrivateRef from x2: U256"),
-                    )
-                } else {
-                    let garbled_x2 = GarbledUint256::try_from(*x2)
-                        .expect("error constructing GarbledUint from Uint<256,4>");
-                    let x2_gates = cb.input(&garbled_x2);
-                    PrivateMemoryValue::Garbled(x2_gates)
-                }
+                let garbled_x2 = GarbledUint256::try_from(*x2)
+                    .expect("error constructing GarbledUint from Uint<256,4>");
+                let x2_gates = cb.input(&garbled_x2);
+                PrivateMemoryValue::Garbled(x2_gates)
             }
+            StackValueData::Private(x2_ref) => $interp.private_memory.get(x2_ref),
             _ => panic!("Unsupported StackValueData type"),
         };
         let PrivateMemoryValue::Garbled($x2_priv) = val2 else {

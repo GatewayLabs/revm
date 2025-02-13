@@ -1,9 +1,6 @@
 use crate::{
     gas,
-    interpreter::{
-        private_memory::{is_bytes_private_tag, is_u256_private_ref, PrivateMemoryValue},
-        StackValueData,
-    },
+    interpreter::{private_memory::is_u256_private_ref, StackValueData},
     Host, Interpreter,
 };
 use core::cmp::max;
@@ -35,24 +32,7 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let offset = as_usize_or_fail!(interpreter, offset);
 
     resize_memory!(interpreter, offset, 32);
-
-    match value {
-        StackValueData::Public(value) => {
-            println!(
-                "mstore::value::is_private_ref: {}",
-                is_u256_private_ref(&value)
-            );
-            interpreter.shared_memory.set_u256(offset, value);
-        }
-        StackValueData::Private(private_ref) => {
-            println!("mstore::private_value");
-
-            interpreter
-                .shared_memory
-                .set_u256(offset, private_ref.into());
-        }
-        StackValueData::Encrypted(_) => todo!(),
-    }
+    interpreter.shared_memory.set_u256(offset, value.into());
 }
 
 pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
