@@ -9,7 +9,7 @@ use std::vec::Vec;
 #[macro_export]
 macro_rules! push_private_memory {
     ($interp: expr, $private_value: expr, $result: ident) => {
-        *$result = StackValueData::Public(
+        *$result = StackValueData::Private(
             $interp
                 .private_memory
                 .push(
@@ -21,7 +21,7 @@ macro_rules! push_private_memory {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateRef {
     tag: [u8; 4],
     index: [u8; 28],
@@ -58,12 +58,12 @@ pub(crate) fn is_bytes_private_tag(bytes: &Bytes) -> bool {
 }
 
 #[inline]
-pub(crate) fn is_u256_private_tag(val: &U256) -> bool {
+pub(crate) fn is_u256_private_ref(val: &U256) -> bool {
     val.to_le_bytes::<32>()[..4] == *DEFAULT_PRIVATE_REF_TAG
 }
 
 #[inline]
-pub(crate) fn is_private_tag(bytes: &[u8]) -> bool {
+pub(crate) fn is_private_ref(bytes: &[u8]) -> bool {
     bytes.len() >= 4 && bytes[..4] == DEFAULT_PRIVATE_REF_TAG[..]
 }
 
@@ -71,7 +71,7 @@ impl TryFrom<&[u8]> for PrivateRef {
     type Error = ();
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !is_private_tag(value) {
+        if !is_private_ref(value) {
             return Err(());
         }
 
@@ -91,7 +91,7 @@ impl TryFrom<Uint<256, 4>> for PrivateRef {
 
     fn try_from(value: U256) -> Result<Self, Self::Error> {
         let bytes: [u8; 32] = value.to_le_bytes();
-        if !is_private_tag(&bytes) {
+        if !is_private_ref(&bytes) {
             return Err(());
         }
 
@@ -230,7 +230,7 @@ impl PrivateMemory {
     pub fn resize(&mut self, new_size: usize) {
         self.data.resize(
             self.last_checkpoint + new_size,
-            PrivateMemoryValue::Garbled(GateIndexVec::new(vec![0])),
+            PrivateMemoryValue::Garbled(GateIndexVec::new(vec![0, 8])),
         );
     }
 
@@ -276,7 +276,7 @@ mod test {
     use crate::{
         instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
         interpreter::{
-            private_memory::{is_private_tag, is_u256_private_tag, PrivateMemoryValue},
+            private_memory::{is_private_ref, is_u256_private_ref, PrivateMemoryValue},
             PrivateMemory,
         },
     };
@@ -301,7 +301,7 @@ mod test {
         let ref2 = memory.push(PrivateMemoryValue::Garbled(gate_index_vec.clone()));
 
         let ref_as_u256: U256 = ref1.into();
-        assert!(is_u256_private_tag(&ref_as_u256));
+        assert!(is_u256_private_ref(&ref_as_u256));
 
         match memory.get(&ref1) {
             PrivateMemoryValue::Encrypted(_) => panic!("expected PrivateMemoryValue::Private"),

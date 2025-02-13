@@ -2,17 +2,13 @@ use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
     gas,
     interpreter::{
-        private_memory::{is_bytes_private_tag, is_private_tag, PrivateMemoryValue, PrivateRef},
+        private_memory::{is_private_ref, PrivateMemoryValue, PrivateRef},
         StackValueData,
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::{
-    prelude::GateIndexVec,
-    uint::{GarbledBoolean, GarbledUint, GarbledUint256},
-};
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor};
-use primitives::{ruint::Uint, Bytes, U256};
+use compute::uint::{GarbledUint, GarbledUint256};
+use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -38,7 +34,13 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
             }
         }
-        StackValueData::Private(condition_gates) => {
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(condition_gates) =
+                interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+
             if let Ok(result) = interpreter
                 .circuit_builder
                 .borrow_mut()
@@ -64,7 +66,13 @@ pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         StackValueData::Public(case) => {
             as_isize_saturated!(case)
         }
-        StackValueData::Private(case_gates) => {
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(case_gates) =
+                interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+
             if let Ok(result) = interpreter
                 .circuit_builder
                 .borrow_mut()
@@ -114,7 +122,12 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 jump_inner(interpreter, target);
             }
         }
-        StackValueData::Private(cond) => {
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(cond) = interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+
             // Borrow `circuit_builder` temporarily
             let result = {
                 let cb = interpreter.circuit_builder.borrow_mut();
@@ -146,17 +159,24 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
     let target = match target {
         StackValueData::Public(target) => target,
-        StackValueData::Private(target) => match interpreter
-            .circuit_builder
-            .borrow_mut()
-            .compile_and_execute::<256>(&target)
-        {
-            Ok(result) => garbled_uint_to_ruint(&result),
-            Err(_) => {
-                interpreter.instruction_result = InstructionResult::InvalidJump; // NOTE: define granular error for gate execution error
-                return;
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(target) = interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+
+            match interpreter
+                .circuit_builder
+                .borrow_mut()
+                .compile_and_execute::<256>(&target)
+            {
+                Ok(result) => garbled_uint_to_ruint(&result),
+                Err(_) => {
+                    interpreter.instruction_result = InstructionResult::InvalidJump; // NOTE: define granular error for gate execution error
+                    return;
+                }
             }
-        },
+        }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
     };
 
@@ -256,7 +276,13 @@ fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> 
             }
             val.as_limbs()[0] as usize
         }
-        StackValueData::Private(gate_indices) => {
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(gate_indices) =
+                interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+
             match interpreter
                 .circuit_builder
                 .borrow_mut()
@@ -298,9 +324,9 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
         let shared_mem = interpreter.shared_memory.slice(offset, len);
         println!(
             "return_inner::is_private_ref: {}",
-            is_private_tag(&shared_mem)
+            is_private_ref(&shared_mem)
         );
-        if is_private_tag(&shared_mem) {
+        if is_private_ref(&shared_mem) {
             let mut garbled_result: GarbledUint256 = GarbledUint256::default();
             match interpreter
                 .private_memory
@@ -420,16 +446,22 @@ mod test {
 
         let garbled_one = GarbledUint::<256>::one();
         let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(garbled_one_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(garbled_one_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
 
         let garbled_zero = GarbledUint::<256>::zero();
         let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(garbled_zero_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
         interp.gas = Gas::new(10000);
 
@@ -523,9 +555,12 @@ mod test {
         // more then max_index
         let garbled_ten = ruint_to_garbled_uint(&U256::from(10));
         let garbled_ten_gates = interp.circuit_builder.borrow_mut().input(&garbled_ten);
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(garbled_ten_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(garbled_ten_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 6);
@@ -540,9 +575,12 @@ mod test {
         // jump to first index of vtable
         let garbled_zero = ruint_to_garbled_uint(&U256::from(0));
         let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(garbled_zero_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(garbled_zero_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 7);
@@ -556,9 +594,12 @@ mod test {
         // jump to second index of vtable
         let garbled_one = ruint_to_garbled_uint(&U256::from(1));
         let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(garbled_one_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(garbled_one_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
         interp.step(&table, &mut host);
         assert_eq!(interp.program_counter(), 8);
@@ -608,11 +649,13 @@ mod test {
         // Create a private target address
         let target = ruint_to_garbled_uint(&U256::from(2)); // JUMPDEST is at position 1
         let target_gates = interp.circuit_builder.borrow_mut().input(&target);
-
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(target_gates));
         // Push the private target address onto the stack
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(target_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
 
         // Execute the step
@@ -657,9 +700,12 @@ mod test {
         let condition_gates = interp.circuit_builder.borrow_mut().input(&condition);
 
         // Push the private condition onto the stack
+        let private_ref = interp
+            .private_memory
+            .push(PrivateMemoryValue::Garbled(condition_gates));
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(condition_gates))
+            .push_stack_value_data(StackValueData::Private(private_ref))
             .unwrap();
 
         // Push the target address (3) onto the stack

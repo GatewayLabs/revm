@@ -2,7 +2,7 @@ use super::i256::i256_cmp;
 use crate::{
     gas,
     instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
-    interpreter::StackValueData,
+    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
     push_private_memory, Host, Interpreter,
 };
 use compute::{
@@ -70,15 +70,17 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let zero_gates = cb.input(&garbled_zero);
 
     // NOTE: maybe easier to check 0 as public and push zero_gates instead of circuit overhead
-    let result = match op1 {
+    let eq_result = match op1 {
         StackValueData::Public(value) => {
-            let garbled_gates = StackValueData::Public(*value).to_garbled_value(&mut cb);
-            let eq_result = cb.eq(&garbled_gates, &zero_gates);
-            StackValueData::Private(GateIndexVec::from(eq_result))
+            let garbled_gates = cb.input(&GarbledUint256::from(*value));
+            cb.eq(&garbled_gates, &zero_gates)
         }
-        StackValueData::Private(garbled) => {
-            let eq_result = cb.eq(&garbled, &zero_gates);
-            StackValueData::Private(GateIndexVec::from(eq_result))
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(garbled) = interpreter.private_memory.get(private_ref)
+            else {
+                panic!("iszero: fetched unsupported PrivateMemoryValue type");
+            };
+            cb.eq(&garbled, &zero_gates)
         }
         StackValueData::Encrypted(_ciphertext) => {
             panic!("Cannot convert encrypted value to garbled value")
@@ -86,7 +88,7 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     };
     drop(cb);
 
-    push_private_memory!(interpreter, result.into(), op1);
+    push_private_memory!(interpreter, eq_result.into(), op1);
 }
 
 pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

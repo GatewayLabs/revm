@@ -1,6 +1,9 @@
 use crate::{
     gas,
-    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
+    interpreter::{
+        private_memory::{is_bytes_private_tag, is_u256_private_ref, PrivateMemoryValue},
+        StackValueData,
+    },
     Host, Interpreter,
 };
 use core::cmp::max;
@@ -10,59 +13,52 @@ use specification::hardfork::Spec;
 pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, top);
-    let shared_mem_offset = top.evaluate(&interpreter.circuit_builder.borrow());
-    let shared_mem_offset = as_usize_or_fail!(interpreter, shared_mem_offset);
-    resize_memory!(interpreter, shared_mem_offset, 32);
-    let shared_mem = interpreter.shared_memory.get_u256(shared_mem_offset);
 
-    if crate::interpreter::private_memory::is_private_tag(shared_mem.as_le_slice()) {
-        let out = match interpreter
-            .private_memory
-            .get(shared_mem.try_into().unwrap())
-        {
-            PrivateMemoryValue::Private(val) => StackValueData::Private(val),
-            _ => panic!("Cannot mload invalid PrivateMemoryValue type"),
-        };
-        *top = out;
-    } else {
-        *top = StackValueData::Public(shared_mem);
-    }
+    let offset = as_usize_or_fail!(interpreter, top);
+    resize_memory!(interpreter, offset, 32);
+
+    let from_memory: U256 = interpreter.shared_memory.get_u256(offset).into();
+
+    println!(
+        "mload::is_u256_private_tag: {}",
+        is_u256_private_ref(&from_memory)
+    );
+
+    *top = from_memory.into();
 }
 
 pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
 
-    let offset = offset.evaluate(&interpreter.circuit_builder.borrow());
+    let offset = offset.evaluate(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
 
     resize_memory!(interpreter, offset, 32);
 
     match value {
-        StackValueData::Public(value) => interpreter.shared_memory.set_u256(offset, value),
-        StackValueData::Private(value) => {
-            let private_ref = interpreter
-                .private_memory
-                .push(PrivateMemoryValue::Private(value));
+        StackValueData::Public(value) => {
+            println!(
+                "mstore::value::is_private_ref: {}",
+                is_u256_private_ref(&value)
+            );
+            interpreter.shared_memory.set_u256(offset, value);
+        }
+        StackValueData::Private(private_ref) => {
+            println!("mstore::private_value");
+
             interpreter
                 .shared_memory
                 .set_u256(offset, private_ref.into());
         }
-        StackValueData::Encrypted(value) => {
-            let private_ref = interpreter
-                .private_memory
-                .push(PrivateMemoryValue::Encrypted(value));
-            interpreter
-                .shared_memory
-                .set_u256(offset, private_ref.into());
-        }
+        StackValueData::Encrypted(_) => todo!(),
     }
 }
 
 pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
-    let offset = offset.evaluate(&interpreter.circuit_builder.borrow());
+    let offset = offset.evaluate(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
     resize_memory!(interpreter, offset, 1);
 

@@ -2,7 +2,7 @@ use super::i256::{i256_div, i256_mod};
 use crate::{
     gas,
     interpreter::{
-        private_memory::{is_u256_private_tag, PrivateMemoryValue, PrivateRef},
+        private_memory::{is_u256_private_ref, PrivateMemoryValue, PrivateRef},
         StackValueData,
     },
     push_private_memory, Host, Interpreter,
@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::{
         instructions::utility::garbled_uint_to_ruint,
-        interpreter::private_memory::{is_u256_private_tag, PrivateRef},
+        interpreter::private_memory::{is_u256_private_ref, PrivateRef},
         Contract, DummyHost,
     };
     use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
@@ -198,7 +198,7 @@ mod tests {
         let output_indices = interpreter.stack.pop().unwrap();
         let private_ref = output_indices.evaluate(&interpreter);
 
-        if !is_u256_private_tag(&private_ref) {
+        if !is_u256_private_ref(&private_ref) {
             panic!("private ref is not valid")
         }
         let PrivateMemoryValue::Garbled(gates) = interpreter
@@ -376,7 +376,7 @@ mod tests {
         let StackValueData::Public(val) = interpreter.stack.pop().unwrap() else {
             panic!("test_rem: popped unexpected StackValueData type")
         };
-        if is_u256_private_tag(&val) {
+        if is_u256_private_ref(&val) {
             let PrivateMemoryValue::Garbled(output_indices) = interpreter.private_memory.get(
                 &PrivateRef::try_from(val)
                     .expect("test_rem: Unable to construct PrivateRef from U256"),

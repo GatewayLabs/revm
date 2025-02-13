@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 use super::{
-    private_memory::{is_u256_private_tag, PrivateMemoryValue, PrivateRef},
+    private_memory::{is_u256_private_ref, PrivateMemoryValue, PrivateRef},
     Interpreter,
 };
 
@@ -28,37 +28,21 @@ pub const STACK_LIMIT: usize = 1024;
 // - Public values are represented as U256
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StackValueData {
-    Private(GateIndexVec),
+    Private(PrivateRef),
     Public(U256),
     Encrypted(Ciphertext),
 }
 
 impl StackValueData {
-    pub fn zero() -> Self {
-        StackValueData::Public(U256::ZERO)
-    }
-
-    pub fn is_zero(&self, circuit_builder: &WRK17CircuitBuilder) -> bool {
-        match self {
-            StackValueData::Public(value) => value.is_zero(),
-            StackValueData::Private(value) => match circuit_builder.compile_and_execute(&value) {
-                Ok(result) => {
-                    println!("result: {:?}", result);
-                    result == GarbledUint::<256>::zero()
-                }
-                Err(_) => {
-                    panic!("Error in checking Private StackValueData is_zero()")
-                }
-            },
-            StackValueData::Encrypted(_) => false,
-        }
-    }
-
     pub fn evaluate(&self, interpreter: &Interpreter) -> U256 {
         let builder = interpreter.circuit_builder.borrow();
         match self {
             StackValueData::Public(val) => {
-                if is_u256_private_tag(val) {
+                println!(
+                    "stack::evaluate: is_private_ref: {}",
+                    is_u256_private_ref(val)
+                );
+                if is_u256_private_ref(val) {
                     let val_private = interpreter.private_memory.get(
                         &PrivateRef::try_from(*val)
                             .expect("evaluate: unable to construct PrivateRef from U256"),
@@ -69,46 +53,27 @@ impl StackValueData {
                     let result = builder
                         .compile_and_execute(&gates)
                         .expect("Failed to evaluate private value");
-                    garbled_uint_to_ruint(&result).into()
+                    result.try_into().unwrap()
                 } else {
                     *val
                 }
             }
             StackValueData::Private(val) => {
+                let val_private = interpreter.private_memory.get(
+                    &PrivateRef::try_from(*val)
+                        .expect("evaluate: unable to construct PrivateRef from U256"),
+                );
+                let PrivateMemoryValue::Garbled(gates) = val_private else {
+                    panic!("evaluate: unsupported PrivateMemoryValue type")
+                };
                 let result = builder
-                    .compile_and_execute(val)
+                    .compile_and_execute(&gates)
                     .expect("Failed to evaluate private value");
-                garbled_uint_to_ruint(&result).into()
+                result.try_into().unwrap()
             }
             StackValueData::Encrypted(_val) => {
                 panic!("Cannot evaluate encrypted value")
             }
-        }
-    }
-
-    pub fn add(&self, other: &Self, builder: &mut WRK17CircuitBuilder) -> Self {
-        match (self, other) {
-            (StackValueData::Public(a), StackValueData::Public(b)) => {
-                StackValueData::Public(a.overflowing_add(*b).0)
-            }
-            (StackValueData::Public(a), StackValueData::Private(b)) => {
-                let a_garbled = ruint_to_garbled_uint(a);
-                let a_gates = builder.input(&a_garbled);
-                StackValueData::Private(builder.add(&a_gates, b))
-            }
-            (StackValueData::Private(a), StackValueData::Public(b)) => {
-                let b_garbled = ruint_to_garbled_uint(b);
-                let b_gates = builder.input(&b_garbled);
-                StackValueData::Private(builder.add(a, &b_gates))
-            }
-            (StackValueData::Private(a), StackValueData::Private(b)) => {
-                StackValueData::Private(builder.add(a, b))
-            }
-            (StackValueData::Encrypted(a), StackValueData::Encrypted(b)) => {
-                let result = a + b;
-                StackValueData::Encrypted(result)
-            }
-            _ => panic!("Cannot add different types of StackValueData"),
         }
     }
 }
@@ -149,7 +114,7 @@ impl PartialEq for StackValueData {
 
 impl Default for StackValueData {
     fn default() -> Self {
-        StackValueData::zero()
+        StackValueData::Public(U256::from(0))
     }
 }
 
@@ -160,18 +125,6 @@ impl Into<U256> for StackValueData {
             StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
             StackValueData::Encrypted(_ciphertext) => {
                 panic!("Cannot convert encrypted value to U256")
-            }
-        }
-    }
-}
-
-impl Into<GateIndexVec> for StackValueData {
-    fn into(self) -> GateIndexVec {
-        match self {
-            StackValueData::Public(_) => panic!("Cannot convert public value to GateIndexVec"),
-            StackValueData::Private(value) => value,
-            StackValueData::Encrypted(_) => {
-                panic!("Cannot convert encrypted value to GateIndexVec")
             }
         }
     }
@@ -189,38 +142,14 @@ impl StackValueData {
             StackValueData::Encrypted(_) => self.clone(),
         }
     }
-    pub fn to_garbled_value(&self, circuit_builder: &mut WRK17CircuitBuilder) -> GateIndexVec {
-        match self {
-            StackValueData::Private(value) => value.clone(),
-            StackValueData::Public(value) => {
-                let garbled_uint = ruint_to_garbled_uint(value);
-                circuit_builder.input(&garbled_uint)
-            }
-            StackValueData::Encrypted(_ciphertext) => {
-                panic!("Cannot convert encrypted value to garbled value")
-            }
-        }
-    }
-    pub fn to_public_value(&self, circuit_builder: &WRK17CircuitBuilder) -> U256 {
-        match self {
-            StackValueData::Public(value) => *value,
-            StackValueData::Private(value) => {
-                let result: GarbledUint256 = circuit_builder.compile_and_execute(&value).unwrap();
-                garbled_uint_to_ruint(&result).into()
-            }
-            StackValueData::Encrypted(_ciphertext) => {
-                panic!("Cannot convert encrypted value to U256")
-            }
-        }
-    }
 }
 
 // Add From implementation for ergonomics
 
 impl std::cmp::Eq for StackValueData {}
 
-impl From<GateIndexVec> for StackValueData {
-    fn from(value: GateIndexVec) -> Self {
+impl From<PrivateRef> for StackValueData {
+    fn from(value: PrivateRef) -> Self {
         StackValueData::Private(value)
     }
 }
@@ -235,7 +164,7 @@ impl StackValueData {
     pub fn to_u256(&self) -> U256 {
         match self {
             StackValueData::Public(value) => *value,
-            StackValueData::Private(_) => panic!("Cannot convert private value to U256"),
+            StackValueData::Private(value) => (*value).into(),
             StackValueData::Encrypted(_ciphertext) => {
                 panic!("Cannot convert encrypted value to U256")
             }
