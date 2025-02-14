@@ -1,6 +1,9 @@
 use crate::{
     gas,
-    interpreter::{private_memory::is_u256_private_ref, StackValueData},
+    interpreter::{
+        private_memory::{is_u256_private_ref, PrivateMemoryValue, PrivateRef},
+        StackValueData,
+    },
     Host, Interpreter,
 };
 use core::cmp::max;
@@ -9,7 +12,27 @@ use specification::hardfork::Spec;
 
 pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, top);
+    pop_top!(interpreter, top_ptr);
+
+    let top: U256 = match top_ptr {
+        StackValueData::Public(top) => *top,
+        StackValueData::Private(top_ptr) => {
+            let val_private = interpreter.private_memory.get(
+                &PrivateRef::try_from(*top_ptr)
+                    .expect("evaluate: unable to construct PrivateRef from U256"),
+            );
+            let PrivateMemoryValue::Garbled(gates) = val_private else {
+                panic!("evaluate: unsupported PrivateMemoryValue type")
+            };
+            let result = interpreter
+                .circuit_builder
+                .borrow()
+                .compile_and_execute(&gates)
+                .expect("Failed to evaluate private value");
+            result.try_into().unwrap()
+        }
+        _ => panic!("Unsupported StackValueData type"),
+    };
 
     let offset = as_usize_or_fail!(interpreter, top);
     resize_memory!(interpreter, offset, 32);
@@ -21,7 +44,7 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         is_u256_private_ref(&from_memory)
     );
 
-    *top = from_memory.into();
+    *top_ptr = from_memory.into();
 }
 
 pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
