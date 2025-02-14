@@ -40,15 +40,15 @@ impl StackValueData {
                 // For public values, create a constant wire
                 let zero = GarbledUint::<256>::zero();
                 let value_garbled = ruint_to_garbled_uint(value);
-                let value_gates = circuit_builder.input(&value_garbled);
-                let zero_gates = circuit_builder.input(&zero);
+                let value_gates = circuit_builder.constant(&value_garbled);
+                let zero_gates = circuit_builder.constant(&zero);
                 // Return a single-element vector containing the equality gate
                 GateIndexVec::from(vec![circuit_builder.eq(&value_gates, &zero_gates)])
             }
             StackValueData::Private(value) => {
                 // For private values, use the existing wire and compare with zero
                 let zero = GarbledUint::<256>::zero();
-                let zero_gates = circuit_builder.input(&zero);
+                let zero_gates = circuit_builder.constant(&zero);
                 GateIndexVec::from(vec![circuit_builder.eq(value, &zero_gates)])
             }
             StackValueData::Encrypted(_) => panic!("Cannot check if encrypted value is zero"),
@@ -71,7 +71,7 @@ impl StackValueData {
         match self {
             StackValueData::Public(value) => {
                 let garbled_uint = ruint_to_garbled_uint(value);
-                builder.input(&garbled_uint)
+                builder.constant(&garbled_uint)
             }
             StackValueData::Private(value) => value.clone(),
             StackValueData::Encrypted(_) => panic!("Cannot convert encrypted value to wire"),
