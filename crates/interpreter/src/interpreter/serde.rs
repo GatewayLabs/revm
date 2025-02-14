@@ -1,5 +1,4 @@
 use core::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::Interpreter;
@@ -30,7 +29,8 @@ struct InterpreterSerde<'a> {
     next_action: &'a InterpreterAction,
     circuit_builder: &'a Rc<RefCell<WRK17CircuitBuilder>>,
     encryption_keypair: &'a Option<Keypair>,
-    program_count_mapping: &'a HashMap<usize, GateIndexVec>,
+    current_pc_wire: &'a Option<GateIndexVec>,
+    proposed_pc_wire: &'a Option<GateIndexVec>,
 }
 
 #[derive(Deserialize)]
@@ -51,8 +51,8 @@ struct InterpreterDe {
     next_action: InterpreterAction,
     circuit_builder: WRK17CircuitBuilder,
     encryption_keypair: Option<Keypair>,
-    program_count_mapping: HashMap<usize, GateIndexVec>,
     current_pc_wire: Option<GateIndexVec>,
+    proposed_pc_wire: Option<GateIndexVec>,
 }
 
 impl Serialize for Interpreter {
@@ -77,7 +77,8 @@ impl Serialize for Interpreter {
             next_action: &self.next_action,
             circuit_builder: &self.circuit_builder,
             encryption_keypair: &self.encryption_keypair,
-            program_count_mapping: &self.program_count_mapping,
+            current_pc_wire: &self.current_pc_wire,
+            proposed_pc_wire: &self.proposed_pc_wire,
         }
         .serialize(serializer)
     }
@@ -105,8 +106,8 @@ impl<'de> Deserialize<'de> for Interpreter {
             next_action,
             circuit_builder,
             encryption_keypair,
-            program_count_mapping,
             current_pc_wire,
+            proposed_pc_wire,
         } = InterpreterDe::deserialize(deserializer)?;
 
         // Reconstruct the instruction pointer from usize
@@ -134,8 +135,8 @@ impl<'de> Deserialize<'de> for Interpreter {
             next_action,
             circuit_builder: Rc::new(RefCell::new(circuit_builder)),
             encryption_keypair,
-            program_count_mapping,
             current_pc_wire,
+            proposed_pc_wire,
         })
     }
 }
