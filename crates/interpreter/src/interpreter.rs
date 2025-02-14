@@ -439,7 +439,6 @@ impl Interpreter {
         let initial_pc_wire = self.create_pc_wire(0);
         self.current_pc_wire = Some(initial_pc_wire.clone());
         let initial_pc = self.evaluate_circuit_pc(&initial_pc_wire);
-        println!("🚀 Starting execution with PC wire = {}", initial_pc);
 
         // Track the last seen PC to detect infinite loops
         let mut last_pc = initial_pc;
@@ -452,11 +451,6 @@ impl Interpreter {
 
             // Check if we've exceeded bytecode length
             if current_pc >= self.bytecode.len() {
-                println!(
-                    "🛑 PC {} exceeds bytecode length {}, stopping",
-                    current_pc,
-                    self.bytecode.len()
-                );
                 break;
             }
 
@@ -464,21 +458,12 @@ impl Interpreter {
             if current_pc == last_pc {
                 same_pc_count += 1;
                 if same_pc_count > 3 {
-                    println!(
-                        "⚠️ PC stuck at {} for {} iterations, possible infinite loop",
-                        current_pc, same_pc_count
-                    );
                     break;
                 }
             } else {
                 same_pc_count = 0;
                 last_pc = current_pc;
             }
-
-            println!(
-                "\n📍 Step {}: Beginning execution at PC {}",
-                step, current_pc
-            );
 
             // Create a constant wire for this step (used only for comparison)
             let step_wire = self.create_pc_wire(step);
@@ -492,12 +477,6 @@ impl Interpreter {
 
             // Get opcode at current PC (not step)
             let opcode = self.bytecode[current_pc];
-            println!(
-                "📝 PC {}: Opcode = 0x{:02x} ({})",
-                current_pc,
-                opcode,
-                OpCode::name_by_op(opcode)
-            );
 
             // Stop if we hit a STOP opcode at an active step
             let is_step_active = {
@@ -507,7 +486,6 @@ impl Interpreter {
                 !is_active_ruint.is_zero()
             };
             if is_step_active && opcode == 0x00 {
-                println!("🛑 Found STOP opcode at PC {}, stopping", current_pc);
                 break;
             }
 
@@ -515,10 +493,6 @@ impl Interpreter {
             self.step_unrolled(instruction_table, host, opcode, &is_this_step, step);
 
             if self.instruction_result != InstructionResult::Continue {
-                println!(
-                    "🛑 Execution stopped at PC {} with result {:?}",
-                    current_pc, self.instruction_result
-                );
                 break;
             }
         }
@@ -560,7 +534,6 @@ impl Interpreter {
         // Get current PC state
         let old_pc = self.current_pc_wire.clone().unwrap();
         let old_pc_val = self.evaluate_circuit_pc(&old_pc);
-        println!("⚙️ Starting execution at PC {}", old_pc_val);
 
         // Evaluate if this step is active
         let is_step_active = {
@@ -569,7 +542,6 @@ impl Interpreter {
             let is_active_ruint = garbled_uint_to_ruint::<256>(&is_active_result);
             !is_active_ruint.is_zero()
         };
-        println!("🔄 Step {} active = {}", step, is_step_active);
 
         // Only execute opcode if step is active
         if is_step_active {
@@ -577,7 +549,6 @@ impl Interpreter {
             if opcode >= 0x60 && opcode <= 0x7f {
                 let n = (opcode - 0x5f) as usize;
                 let next_pc = old_pc_val + 1 + n;
-                println!("📥 PUSH{}: Setting next PC to {}", n, next_pc);
 
                 // Create next PC wire using constant
                 let next_pc_wire = self.create_pc_wire(next_pc);
@@ -590,16 +561,8 @@ impl Interpreter {
                     bytes[32 - n..].copy_from_slice(data_slice);
                 }
                 let push_value = U256::from_be_bytes(bytes);
-                println!("📥 Pushing data {:?}", push_value);
                 self.stack.push_stack_value_data(push_value.into()).unwrap();
             } else {
-                // For non-push opcodes, let the opcode handler set proposed_pc_wire
-                println!(
-                    "🔧 Executing opcode 0x{:02x} ({})",
-                    opcode,
-                    OpCode::name_by_op(opcode)
-                );
-
                 // Default next PC is current + 1
                 let default_next_pc = old_pc_val + 1;
                 let default_next_pc_wire = self.create_pc_wire(default_next_pc);
@@ -607,12 +570,6 @@ impl Interpreter {
 
                 // Execute opcode (may update proposed_pc_wire for jumps)
                 (instruction_table[opcode as usize])(self, host);
-
-                // Log proposed PC after execution
-                if let Some(proposed_pc) = &self.proposed_pc_wire {
-                    let proposed_val = self.evaluate_circuit_pc(proposed_pc);
-                    println!("🎯 Opcode proposed new PC = {}", proposed_val);
-                }
             }
 
             // Update PC state using mux with is_active as selector
@@ -625,10 +582,6 @@ impl Interpreter {
                 )
             };
             self.current_pc_wire = Some(new_pc_state);
-
-            // Log final PC after update
-            let final_pc = self.evaluate_circuit_pc(self.current_pc_wire.as_ref().unwrap());
-            println!("✅ PC updated to {}", final_pc);
         }
 
         // Clear proposed PC wire

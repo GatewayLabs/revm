@@ -39,7 +39,7 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     let current_pc = interpreter.program_counter();
     let offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-    let jump_dest = (current_pc + 2 + offset as usize);
+    let jump_dest = current_pc + 2 + offset as usize;
     let fallthrough_pc = current_pc + 2;
 
     // Convert condition to wire
@@ -133,7 +133,6 @@ pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     // Convert target to wire (using to_wire which handles both public and private values)
     let target_wire = target.to_wire(&mut interpreter.circuit_builder.borrow_mut());
-    println!("🦘 JUMP: Proposing jump to target PC");
 
     // Update proposed PC wire
     interpreter.proposed_pc_wire = Some(target_wire);
@@ -158,11 +157,6 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         .circuit_builder
         .borrow_mut()
         .constant(&fallthrough_pc_garbled);
-
-    println!(
-        "🦘 JUMPI: condition={:?}, target={:?}, fallthrough={}",
-        condition, target, fallthrough_pc
-    );
 
     let proposed_pc = interpreter.circuit_builder.borrow_mut().mux(
         &selector[0],
@@ -371,11 +365,9 @@ mod control_tests {
     fn add_jumpdest_at(bytecode: &mut Vec<u8>, target_pc: usize) {
         if target_pc < bytecode.len() {
             bytecode[target_pc] = 0x5b; // JUMPDEST opcode
-            println!("📍 Added JUMPDEST at PC {}", target_pc);
         } else {
             bytecode.resize(target_pc, 0x00); // Pad with NOPs
             bytecode.push(0x5b); // Add JUMPDEST
-            println!("📍 Added JUMPDEST at PC {} (with padding)", target_pc);
         }
     }
 
@@ -383,7 +375,6 @@ mod control_tests {
     fn setup_test_interpreter(
         bytecode: Vec<u8>,
     ) -> (Interpreter, DummyHost<DefaultEthereumWiring>) {
-        println!("📦 Creating interpreter with bytecode: {:?}", bytecode);
         let bytes = Bytes::from(bytecode);
         let legacy_raw = bytecode::LegacyRawBytecode::from(bytes);
         let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(legacy_raw));
@@ -393,7 +384,6 @@ mod control_tests {
         // Initialize PC wire to 0
         let initial_pc_wire = interp.create_pc_wire(0);
         interp.current_pc_wire = Some(initial_pc_wire);
-        println!("🔄 Initialized PC wire to 0");
 
         let host = DummyHost::<DefaultEthereumWiring>::new(Env::default());
         (interp, host)
@@ -402,7 +392,6 @@ mod control_tests {
     #[test]
     fn test_jump_public() {
         let target_pc = 42;
-        println!("\n🧪 Testing public JUMP to PC {}", target_pc);
 
         // Create bytecode: PUSH target_pc, JUMP
         let mut bytecode = vec![0x60]; // PUSH1
@@ -417,7 +406,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches target
@@ -425,14 +413,12 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, target_pc);
         assert_eq!(pc, target_pc, "Jump did not set the expected PC wire");
     }
 
     #[test]
     fn test_jump_private() {
         let target_pc = 42;
-        println!("\n🧪 Testing private JUMP to PC {}", target_pc);
 
         // Create bytecode: JUMP (we'll push the private target onto stack manually)
         let mut bytecode = vec![0x56]; // JUMP
@@ -443,7 +429,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Create private target value and push to stack
-        println!("🔒 Creating private target value");
         let target_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
         let target_gates = interp.circuit_builder.borrow_mut().input(&target_garbled);
         interp
@@ -452,7 +437,6 @@ mod control_tests {
             .unwrap();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches target
@@ -460,7 +444,6 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, target_pc);
         assert_eq!(
             pc, target_pc,
             "Jump with private target did not set the expected PC wire"
@@ -470,7 +453,6 @@ mod control_tests {
     #[test]
     fn test_jumpi_public_taken() {
         let target_pc = 55;
-        println!("\n🧪 Testing public JUMPI (taken) to PC {}", target_pc);
 
         // Create bytecode: PUSH 1 (condition), PUSH target_pc, JUMPI
         let mut bytecode = vec![0x60]; // PUSH1
@@ -485,7 +467,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches target
@@ -493,7 +474,6 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, target_pc);
         assert_eq!(
             pc, target_pc,
             "Jumpi with nonzero condition did not jump to target"
@@ -504,10 +484,6 @@ mod control_tests {
     fn test_jumpi_public_not_taken() {
         let target_pc = 55;
         let fallthrough_pc = 5; // PUSH1 + PUSH1 + JUMPI = 5 bytes
-        println!(
-            "\n🧪 Testing public JUMPI (not taken) to PC {} (fallthrough {})",
-            target_pc, fallthrough_pc
-        );
 
         // Create bytecode: PUSH 0 (condition), PUSH target_pc, JUMPI
         let mut bytecode = vec![0x60]; // PUSH1
@@ -522,7 +498,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches fallthrough
@@ -530,7 +505,6 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, fallthrough_pc);
         assert_eq!(
             pc, fallthrough_pc,
             "Jumpi with zero condition did not fallthrough"
@@ -540,7 +514,6 @@ mod control_tests {
     #[test]
     fn test_jumpi_private_taken() {
         let target_pc = 55;
-        println!("\n🧪 Testing private JUMPI (taken) to PC {}", target_pc);
 
         // Create bytecode: JUMPI (we'll push private condition and target manually)
         let mut bytecode = vec![0x57]; // JUMPI
@@ -551,7 +524,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Create private condition (1) and target
-        println!("🔒 Creating private condition and target");
         let condition_garbled = GarbledUint256::one();
         let condition_gates = interp
             .circuit_builder
@@ -572,7 +544,6 @@ mod control_tests {
             .unwrap();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches target
@@ -580,7 +551,6 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, target_pc);
         assert_eq!(
             pc, target_pc,
             "Jumpi with private nonzero condition did not jump to target"
@@ -590,10 +560,6 @@ mod control_tests {
     #[test]
     fn test_jumpi_mixed_private_public() {
         let target_pc = 55;
-        println!(
-            "\n🧪 Testing mixed JUMPI (public target, private condition) to PC {}",
-            target_pc
-        );
 
         // Create bytecode: PUSH target_pc, JUMPI (we'll push private condition manually)
         let mut bytecode = vec![0x60]; // PUSH1
@@ -606,7 +572,6 @@ mod control_tests {
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
         // Create private condition (1)
-        println!("🔒 Creating private condition");
         let condition_garbled = GarbledUint256::one();
         let condition_gates = interp
             .circuit_builder
@@ -620,7 +585,6 @@ mod control_tests {
             .unwrap();
 
         // Run the interpreter
-        println!("▶️ Running interpreter");
         interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
         // Verify PC wire matches target
@@ -628,7 +592,6 @@ mod control_tests {
             &interp.circuit_builder,
             interp.current_pc_wire.as_ref().unwrap(),
         );
-        println!("🎯 Final PC: {} (expected {})", pc, target_pc);
         assert_eq!(
             pc, target_pc,
             "Jumpi with public target and private condition did not jump correctly"
