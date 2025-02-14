@@ -131,10 +131,8 @@ pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop!(interpreter, target);
 
-    // Convert target to wire (using to_wire which handles both public and private values)
     let target_wire = target.to_wire(&mut interpreter.circuit_builder.borrow_mut());
 
-    // Update proposed PC wire
     interpreter.proposed_pc_wire = Some(target_wire);
 }
 
@@ -142,34 +140,16 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
     pop!(interpreter, target, condition);
 
-    // Instead of evaluating the PC in Rust, work entirely in the circuit:
-    // Clone the current PC wire.
-    let current_pc_wire = interpreter.current_pc_wire.as_ref().unwrap().clone();
-
-    // Create a circuit constant representing 1.
-    let one = ruint_to_garbled_uint(&U256::from(1));
-    let one_wire = interpreter.circuit_builder.borrow_mut().constant(&one);
-
-    // Compute fallthrough_pc entirely in-circuit: current_pc + 1.
-    let fallthrough_wire = interpreter
-        .circuit_builder
-        .borrow_mut()
-        .add(&current_pc_wire, &one_wire);
-
-    // Compute the condition's zero-ness as a circuit wire.
+    let fallthrough_wire = interpreter.proposed_pc_wire.as_ref().unwrap().clone();
     let selector = condition.is_zero_wire(&mut interpreter.circuit_builder.borrow_mut());
-
-    // Convert the jump target to a circuit wire.
     let target_wire = target.to_wire(&mut interpreter.circuit_builder.borrow_mut());
 
-    // Use the mux to select between fallthrough and jump target.
-    let proposed_pc = interpreter.circuit_builder.borrow_mut().mux(
-        &selector[0],
-        &fallthrough_wire, // selected when condition is zero (i.e. no jump)
-        &target_wire,      // selected when condition is nonzero (i.e. jump)
-    );
+    let proposed_pc =
+        interpreter
+            .circuit_builder
+            .borrow_mut()
+            .mux(&selector[0], &fallthrough_wire, &target_wire);
 
-    // Update the proposed PC wire.
     interpreter.proposed_pc_wire = Some(proposed_pc);
 }
 
@@ -188,28 +168,20 @@ pub fn callf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         return;
     }
 
-    // get target types
     let Some(types) = interpreter.eof().unwrap().body.types_section.get(idx) else {
         panic!("Invalid EOF in execution, expecting correct intermediate in callf")
     };
 
-    // Check max stack height for target code section.
     // safe to subtract as max_stack_height is always more than inputs.
     if interpreter.stack.len() + (types.max_stack_size - types.inputs as u16) as usize > 1024 {
         interpreter.instruction_result = InstructionResult::StackOverflow;
         return;
     }
 
-    // Calculate return PC
     let return_pc = interpreter.program_counter() + 2;
-
-    // Create circuit wire for return PC
-    let return_pc_gates = interpreter.create_pc_wire(return_pc);
-
-    // push current idx and PC to the callf stack.
+    interpreter.create_pc_wire(return_pc);
     interpreter.function_stack.push(return_pc, idx);
 
-    // Create circuit wire for target PC (0)
     let target_pc_gates = interpreter.create_pc_wire(0);
     interpreter.proposed_pc_wire = Some(target_pc_gates);
 
