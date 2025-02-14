@@ -142,29 +142,34 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
     pop!(interpreter, target, condition);
 
-    // Get current PC from the persistent state
-    let current_pc = interpreter.evaluate_circuit_pc(interpreter.current_pc_wire.as_ref().unwrap());
-    let fallthrough_pc = current_pc + 1;
+    // Instead of evaluating the PC in Rust, work entirely in the circuit:
+    // Clone the current PC wire.
+    let current_pc_wire = interpreter.current_pc_wire.as_ref().unwrap().clone();
 
-    let selector = condition.is_zero_wire(&mut interpreter.circuit_builder.borrow_mut());
+    // Create a circuit constant representing 1.
+    let one = ruint_to_garbled_uint(&U256::from(1));
+    let one_wire = interpreter.circuit_builder.borrow_mut().constant(&one);
 
-    // Convert target to wire (using to_wire which handles both public and private values)
-    let target_wire = target.to_wire(&mut interpreter.circuit_builder.borrow_mut());
-
-    // Create fallthrough PC wire using constant
-    let fallthrough_pc_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
-    let fallthrough_gates = interpreter
+    // Compute fallthrough_pc entirely in-circuit: current_pc + 1.
+    let fallthrough_wire = interpreter
         .circuit_builder
         .borrow_mut()
-        .constant(&fallthrough_pc_garbled);
+        .add(&current_pc_wire, &one_wire);
 
+    // Compute the condition's zero-ness as a circuit wire.
+    let selector = condition.is_zero_wire(&mut interpreter.circuit_builder.borrow_mut());
+
+    // Convert the jump target to a circuit wire.
+    let target_wire = target.to_wire(&mut interpreter.circuit_builder.borrow_mut());
+
+    // Use the mux to select between fallthrough and jump target.
     let proposed_pc = interpreter.circuit_builder.borrow_mut().mux(
         &selector[0],
-        &fallthrough_gates, // branch selected when fixed_selector is 1 (i.e. original condition zero)
-        &target_wire, // branch selected when fixed_selector is 0 (i.e. original condition nonzero)
+        &fallthrough_wire, // selected when condition is zero (i.e. no jump)
+        &target_wire,      // selected when condition is nonzero (i.e. jump)
     );
 
-    // Update proposed PC wire
+    // Update the proposed PC wire.
     interpreter.proposed_pc_wire = Some(proposed_pc);
 }
 

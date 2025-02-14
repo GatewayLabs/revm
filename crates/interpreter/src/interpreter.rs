@@ -438,62 +438,103 @@ impl Interpreter {
         // Initialize PC wire to 0
         let initial_pc_wire = self.create_pc_wire(0);
         self.current_pc_wire = Some(initial_pc_wire.clone());
-        let initial_pc = self.evaluate_circuit_pc(&initial_pc_wire);
+        let mut final_pc_wire = initial_pc_wire;
 
         // Track the last seen PC to detect infinite loops
-        let mut last_pc = initial_pc;
+        let mut last_pc = 0;
         let mut same_pc_count = 0;
 
-        // Instead of following jumps, iterate through all possible steps
+        // Build the complete circuit
         for step in 0..MAX_STEPS {
-            // Early termination checks
-            let current_pc = self.evaluate_circuit_pc(self.current_pc_wire.as_ref().unwrap());
+            // Create a constant wire for this step (used only for comparison)
+            let step_wire = self.create_pc_wire(step);
 
-            // Check if we've exceeded bytecode length
-            if current_pc >= self.bytecode.len() {
+            // Compare current PC with step index - but don't evaluate yet
+            let is_this_step = {
+                let mut cb = self.circuit_builder.borrow_mut();
+                cb.eq(&final_pc_wire, &step_wire)
+            };
+            let is_this_step = GateIndexVec::from(vec![is_this_step]);
+
+            // Get opcode at current step
+            let opcode = if step < self.bytecode.len() {
+                self.bytecode[step]
+            } else {
+                0x00 // STOP
+            };
+
+            // For PUSH opcodes, compute next PC based on current PC
+            if opcode >= 0x60 && opcode <= 0x7f {
+                let n = (opcode - 0x5f) as usize;
+                let next_pc = step + 1 + n;
+
+                // Create next PC wire using constant
+                let next_pc_wire = self.create_pc_wire(next_pc);
+                self.proposed_pc_wire = Some(next_pc_wire);
+
+                // Handle push data
+                let mut bytes = [0u8; 32];
+                if step + 1 + n <= self.bytecode.len() {
+                    let data_slice = &self.bytecode[step + 1..step + 1 + n];
+                    bytes[32 - n..].copy_from_slice(data_slice);
+                }
+                let push_value = U256::from_be_bytes(bytes);
+                self.stack.push_stack_value_data(push_value.into()).unwrap();
+            } else {
+                // Default next PC is current + 1
+                let default_next_pc = step + 1;
+                let default_next_pc_wire = self.create_pc_wire(default_next_pc);
+                self.proposed_pc_wire = Some(default_next_pc_wire);
+
+                // Execute opcode (may update proposed_pc_wire for jumps)
+                (instruction_table[opcode as usize])(self, host);
+            }
+
+            // Update PC state using mux with is_this_step as selector
+            let new_pc_state = {
+                let mut cb = self.circuit_builder.borrow_mut();
+                cb.mux(
+                    &is_this_step[0],
+                    self.proposed_pc_wire.as_ref().unwrap(),
+                    &final_pc_wire,
+                )
+            };
+            final_pc_wire = new_pc_state;
+            self.current_pc_wire = Some(final_pc_wire.clone());
+
+            // Early termination checks (but only using public information)
+            if step >= self.bytecode.len() || opcode == 0x00 {
                 break;
             }
 
-            // Check for potential infinite loop
-            if current_pc == last_pc {
+            // Check for potential infinite loop using public PC
+            if step == last_pc {
                 same_pc_count += 1;
                 if same_pc_count > 3 {
                     break;
                 }
             } else {
                 same_pc_count = 0;
-                last_pc = current_pc;
+                last_pc = step;
             }
+        }
 
-            // Create a constant wire for this step (used only for comparison)
-            let step_wire = self.create_pc_wire(step);
+        // Compile and execute the complete circuit once
+        {
+            let cb = self.circuit_builder.borrow();
+            let circuit = cb.compile(&final_pc_wire);
 
-            // Compare current PC with step index
-            let is_this_step = {
-                let mut cb = self.circuit_builder.borrow_mut();
-                cb.eq(&self.current_pc_wire.as_ref().unwrap(), &step_wire)
-            };
-            let is_this_step = GateIndexVec::from(vec![is_this_step]);
+            // Execute once to get final PC
+            let result = cb
+                .execute::<256>(&circuit)
+                .expect("Failed to execute circuit");
 
-            // Get opcode at current PC (not step)
-            let opcode = self.bytecode[current_pc];
+            // Update interpreter state based on final circuit evaluation
+            let final_pc = garbled_uint_to_ruint::<256>(&result).as_limbs()[0] as usize;
+            self.instruction_pointer = unsafe { self.bytecode.as_ptr().add(final_pc) };
 
-            // Stop if we hit a STOP opcode at an active step
-            let is_step_active = {
-                let cb = self.circuit_builder.borrow();
-                let is_active_result = cb.compile_and_execute(&is_this_step).unwrap();
-                let is_active_ruint = garbled_uint_to_ruint::<256>(&is_active_result);
-                !is_active_ruint.is_zero()
-            };
-            if is_step_active && opcode == 0x00 {
-                break;
-            }
-
-            // Execute step
-            self.step_unrolled(instruction_table, host, opcode, &is_this_step, step);
-
-            if self.instruction_result != InstructionResult::Continue {
-                break;
+            if final_pc >= self.bytecode.len() {
+                self.instruction_result = InstructionResult::Stop;
             }
         }
 
@@ -510,82 +551,6 @@ impl Interpreter {
                 gas: self.gas,
             },
         }
-    }
-
-    /// Helper function to evaluate a PC wire value
-    pub(crate) fn evaluate_circuit_pc(&self, pc_gates: &GateIndexVec) -> usize {
-        let cb = self.circuit_builder.borrow();
-        let result = cb.compile_and_execute(pc_gates).unwrap();
-        let ruint_value = garbled_uint_to_ruint::<256>(&result);
-        drop(cb);
-        ruint_value.as_limbs()[0] as usize
-    }
-
-    fn step_unrolled<FN, H: Host + ?Sized>(
-        &mut self,
-        instruction_table: &[FN; 256],
-        host: &mut H,
-        opcode: u8,
-        is_active: &GateIndexVec,
-        step: usize,
-    ) where
-        FN: Fn(&mut Interpreter, &mut H),
-    {
-        // Get current PC state
-        let old_pc = self.current_pc_wire.clone().unwrap();
-        let old_pc_val = self.evaluate_circuit_pc(&old_pc);
-
-        // Evaluate if this step is active
-        let is_step_active = {
-            let cb = self.circuit_builder.borrow();
-            let is_active_result = cb.compile_and_execute(is_active).unwrap();
-            let is_active_ruint = garbled_uint_to_ruint::<256>(&is_active_result);
-            !is_active_ruint.is_zero()
-        };
-
-        // Only execute opcode if step is active
-        if is_step_active {
-            // For PUSH opcodes, compute next PC based on current PC
-            if opcode >= 0x60 && opcode <= 0x7f {
-                let n = (opcode - 0x5f) as usize;
-                let next_pc = old_pc_val + 1 + n;
-
-                // Create next PC wire using constant
-                let next_pc_wire = self.create_pc_wire(next_pc);
-                self.proposed_pc_wire = Some(next_pc_wire);
-
-                // Handle push data
-                let mut bytes = [0u8; 32];
-                if old_pc_val + 1 + n <= self.bytecode.len() {
-                    let data_slice = &self.bytecode[old_pc_val + 1..old_pc_val + 1 + n];
-                    bytes[32 - n..].copy_from_slice(data_slice);
-                }
-                let push_value = U256::from_be_bytes(bytes);
-                self.stack.push_stack_value_data(push_value.into()).unwrap();
-            } else {
-                // Default next PC is current + 1
-                let default_next_pc = old_pc_val + 1;
-                let default_next_pc_wire = self.create_pc_wire(default_next_pc);
-                self.proposed_pc_wire = Some(default_next_pc_wire);
-
-                // Execute opcode (may update proposed_pc_wire for jumps)
-                (instruction_table[opcode as usize])(self, host);
-            }
-
-            // Update PC state using mux with is_active as selector
-            let new_pc_state = {
-                let mut cb = self.circuit_builder.borrow_mut();
-                cb.mux(
-                    &is_active[0],
-                    self.proposed_pc_wire.as_ref().unwrap(),
-                    &old_pc,
-                )
-            };
-            self.current_pc_wire = Some(new_pc_state);
-        }
-
-        // Clear proposed PC wire
-        self.proposed_pc_wire = None;
     }
 
     /// Creates a circuit wire for a PC value
