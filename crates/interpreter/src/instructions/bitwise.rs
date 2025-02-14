@@ -171,15 +171,53 @@ pub fn shl<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM
+// TODO: fix gambiarra
 pub fn shr<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, CONSTANTINOPLE);
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, op1, op2);
+    pop_top!(interpreter, op1_ptr, op2_ptr);
+
+    let op1 = match op1_ptr {
+        StackValueData::Public(val) => val,
+        StackValueData::Private(private_ref) => {
+            let PrivateMemoryValue::Garbled(gate_index_vec) =
+                interpreter.private_memory.get(&private_ref)
+            else {
+                panic!("Unsupported PrivateMemoryValue type")
+            };
+            U256::from(
+                interpreter
+                    .circuit_builder
+                    .borrow()
+                    .compile_and_execute(&gate_index_vec)
+                    .unwrap(),
+            )
+        }
+        _ => todo!(),
+    };
+
     let shift = as_usize_saturated!(op1);
-    *op2 = if shift < 256 {
-        let garbled_op2 = ruint_to_garbled_uint(&op2.to_u256());
-        let shifted_op2 = garbled_op2 >> shift;
-        garbled_uint_to_ruint(&shifted_op2.into()).into()
+    *op2_ptr = if shift < 256 {
+        let op2 = match op2_ptr {
+            StackValueData::Public(val) => *val,
+            StackValueData::Private(private_ref) => {
+                let PrivateMemoryValue::Garbled(gate_index_vec) =
+                    interpreter.private_memory.get(&private_ref)
+                else {
+                    panic!("Unsupported PrivateMemoryValue type")
+                };
+                U256::from(
+                    interpreter
+                        .circuit_builder
+                        .borrow()
+                        .compile_and_execute(&gate_index_vec)
+                        .unwrap(),
+                )
+            }
+            _ => todo!(),
+        };
+        let shifted_op2 = op2 >> shift;
+        StackValueData::Public(shifted_op2)
     } else {
         U256::ZERO.into()
     }
@@ -459,21 +497,15 @@ mod tests {
                 .push(test.value.into())
                 .expect("Failed to push value to stack");
 
-            println!("Value: {:?}", test.value);
-
             iszero(&mut interpreter, &mut host);
 
             pop_top_private!(interpreter, output, output_indices);
-
-            println!("Output indices: {:?}", output_indices);
 
             let result: GarbledUint256 = interpreter
                 .circuit_builder
                 .borrow()
                 .compile_and_execute(&output_indices)
                 .unwrap();
-
-            println!("Result: {:?}", garbled_uint_to_bool(&result));
 
             assert_eq!(
                 garbled_uint_to_bool(&result),

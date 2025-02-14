@@ -37,27 +37,7 @@ impl StackValueData {
     pub fn evaluate(&self, interpreter: &Interpreter) -> U256 {
         let builder = interpreter.circuit_builder.borrow();
         match self {
-            StackValueData::Public(val) => {
-                println!(
-                    "stack::evaluate: is_private_ref: {}",
-                    is_u256_private_ref(val)
-                );
-                if is_u256_private_ref(val) {
-                    let val_private = interpreter.private_memory.get(
-                        &PrivateRef::try_from(*val)
-                            .expect("evaluate: unable to construct PrivateRef from U256"),
-                    );
-                    let PrivateMemoryValue::Garbled(gates) = val_private else {
-                        panic!("evaluate: unsupported PrivateMemoryValue type")
-                    };
-                    let result = builder
-                        .compile_and_execute(&gates)
-                        .expect("Failed to evaluate private value");
-                    result.try_into().unwrap()
-                } else {
-                    *val
-                }
-            }
+            StackValueData::Public(val) => *val,
             StackValueData::Private(val) => {
                 let val_private = interpreter.private_memory.get(
                     &PrivateRef::try_from(*val)
@@ -443,7 +423,7 @@ impl Stack {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn dup(&mut self, n: usize) -> Result<(), InstructionResult> {
         assume!(n > 0, "attempted to dup 0");
-        let len = self.data.len();
+        let len: usize = self.data.len();
         if len < n {
             Err(InstructionResult::StackUnderflow)
         } else if len + 1 > STACK_LIMIT {

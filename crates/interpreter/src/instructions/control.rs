@@ -45,7 +45,6 @@ pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
                 .circuit_builder
                 .borrow_mut()
                 .compile_and_execute::<256>(&condition_gates)
-            // NOTE: assume 256 bits due to public condition
             {
                 if result != GarbledUint::zero() {
                     offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
@@ -266,47 +265,6 @@ pub fn pc<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         U256::from(interpreter.program_counter() - 1).into()
     );
 }
-#[inline]
-fn process_stack_value(interpreter: &mut Interpreter, value: StackValueData) -> usize {
-    match value {
-        StackValueData::Public(val) => {
-            if val > U256::from(usize::MAX) {
-                interpreter.instruction_result = InstructionResult::InvalidJump;
-                return 0;
-            }
-            val.as_limbs()[0] as usize
-        }
-        StackValueData::Private(private_ref) => {
-            let PrivateMemoryValue::Garbled(gate_indices) =
-                interpreter.private_memory.get(&private_ref)
-            else {
-                panic!("Unsupported PrivateMemoryValue type");
-            };
-
-            match interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&gate_indices)
-            {
-                Ok(garbled_val) => {
-                    let u256_val = garbled_uint_to_ruint(&garbled_val);
-                    if u256_val > U256::from(usize::MAX) {
-                        interpreter.instruction_result = InstructionResult::InvalidJump;
-                        return 0;
-                    }
-                    u256_val.as_limbs()[0] as usize
-                }
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidEOFInitCode;
-                    0
-                }
-            }
-        }
-        StackValueData::Encrypted(_ciphertext) => {
-            panic!("Cannot convert encrypted value to U256")
-        }
-    }
-}
 
 #[inline]
 fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionResult) {
@@ -314,26 +272,20 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
     // gas!(interpreter, gas::ZERO);
     pop!(interpreter, offset, len);
     let len = as_usize_or_fail!(interpreter, len.evaluate(&interpreter));
-    println!("return_inner::len: {}", len);
+    // let len = as_usize_or_fail!(interpreter, U256::from(32));
     // important: offset must be ignored if len is zeros
     let mut output = Bytes::default();
     if len != 0 {
         let offset = as_usize_or_fail!(interpreter, offset.evaluate(&interpreter));
         resize_memory!(interpreter, offset, len);
-
-        let shared_mem = interpreter.shared_memory.slice(offset, len);
-        println!(
-            "return_inner::is_private_ref: {}",
-            is_private_ref(&shared_mem)
-        );
+        let shared_mem = interpreter.shared_memory.slice(offset, 32);
         if is_private_ref(&shared_mem) {
-            let mut garbled_result: GarbledUint256 = GarbledUint256::default();
             match interpreter
                 .private_memory
                 .get(&PrivateRef::try_from(shared_mem).unwrap())
             {
                 PrivateMemoryValue::Garbled(indices) => {
-                    garbled_result = interpreter
+                    let garbled_result = interpreter
                         .circuit_builder
                         .borrow()
                         .compile_and_execute(&indices)
