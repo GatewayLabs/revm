@@ -164,7 +164,7 @@ impl PrivateMemoryValue {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PrivateMemory {
     /// The underlying buffer.
-    data: Vec<PrivateMemoryValue>,
+    pub data: Vec<PrivateMemoryValue>,
     /// Memory checkpoints for each depth.
     checkpoints: Vec<usize>,
     /// Invariant: equals `self.checkpoints.last()`

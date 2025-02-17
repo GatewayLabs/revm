@@ -9,6 +9,7 @@ use crate::{
 };
 use compute::{prelude::CircuitExecutor, uint::GarbledUint256};
 use primitives::U256;
+use serde::de::value;
 use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -39,6 +40,14 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+
+    let cb = interpreter.circuit_builder.borrow();
+
+    let op1_value: GarbledUint256 = cb.compile_and_execute(&garbled_op1).unwrap();
+    let op2_value: GarbledUint256 = cb.compile_and_execute(&garbled_op2).unwrap();
+
+    println!("op1: {:?}", U256::from(op1_value));
+    println!("op2: {:?}", U256::from(op2_value));
 
     let result = interpreter
         .circuit_builder

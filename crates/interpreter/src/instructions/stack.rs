@@ -36,7 +36,6 @@ pub fn push<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _ho
         return;
     }
     let next_ip = unsafe { ip.add(N) };
-    println!("Next IP: {:?}", next_ip);
     interpreter.instruction_pointer = next_ip;
 }
 
@@ -51,6 +50,7 @@ pub fn dup<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _hos
 pub fn swap<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     if let Err(result) = interpreter.stack.swap(N) {
+        println!("SWAP1 Error: {:?}", result);
         interpreter.instruction_result = result;
     }
 }

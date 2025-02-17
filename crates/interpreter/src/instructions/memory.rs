@@ -39,12 +39,12 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     let from_memory: U256 = interpreter.shared_memory.get_u256(offset).into();
 
-    println!(
-        "mload::is_u256_private_tag: {}",
-        is_u256_private_ref(&from_memory)
-    );
+    // println!(
+    //     "mload::is_u256_private_tag: {}",
+    //     is_u256_private_ref(&from_memory)
+    // );
 
-    println!("mload::from_memory: {:?}", from_memory);
+    // println!("mload::from_memory: {:?}", from_memory);
 
     *top_ptr = from_memory.into();
 }
@@ -57,7 +57,9 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let offset = as_usize_or_fail!(interpreter, offset);
 
     resize_memory!(interpreter, offset, 32);
-    interpreter.shared_memory.set_u256(offset, value.into());
+    interpreter
+        .shared_memory
+        .set_u256(offset, value.evaluate(&interpreter));
 }
 
 pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -87,15 +89,15 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     pop!(interpreter, dst, src, len);
 
     // into usize or fail
-    let len = as_usize_or_fail!(interpreter, len);
+    let len = as_usize_or_fail!(interpreter, len.evaluate(&interpreter));
     // deduce gas
     gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64));
     if len == 0 {
         return;
     }
 
-    let dst = as_usize_or_fail!(interpreter, dst);
-    let src = as_usize_or_fail!(interpreter, src);
+    let dst = as_usize_or_fail!(interpreter, dst.evaluate(&interpreter));
+    let src = as_usize_or_fail!(interpreter, src.evaluate(&interpreter));
     // resize memory
     resize_memory!(interpreter, max(dst, src), len);
     // copy memory in place
