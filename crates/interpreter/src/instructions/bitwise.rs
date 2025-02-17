@@ -220,7 +220,9 @@ pub fn shr<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
         StackValueData::Public(shifted_op2)
     } else {
         U256::ZERO.into()
-    }
+    };
+
+    println!("Shr: {:?}", op2_ptr);
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM

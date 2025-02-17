@@ -135,9 +135,7 @@ pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
             match result {
                 Ok(result) => {
-                    println!("result: {:?}", result);
                     let x: GarbledUint<256> = GarbledUint::new(vec![false; 256]);
-                    println!("x: {:?}", x);
                     if result != x {
                         jump_inner(interpreter, target); // Safe to borrow `interpreter` mutably again
                     }
@@ -278,27 +276,18 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
     if len != 0 {
         let offset = as_usize_or_fail!(interpreter, offset.evaluate(&interpreter));
         resize_memory!(interpreter, offset, len);
-        let shared_mem = interpreter.shared_memory.slice(offset, 32);
-        if is_private_ref(&shared_mem) {
-            match interpreter
-                .private_memory
-                .get(&PrivateRef::try_from(shared_mem).unwrap())
-            {
-                PrivateMemoryValue::Garbled(indices) => {
-                    let garbled_result = interpreter
-                        .circuit_builder
-                        .borrow()
-                        .compile_and_execute(&indices)
-                        .unwrap();
-                    // Assign the Uint<256, 4> to a local variable
-                    let ruint_value = garbled_uint_to_ruint::<256>(&garbled_result);
-                    output = Into::<Bytes>::into(ruint_value.as_le_slice().to_vec());
+        let shared_mem = interpreter.shared_memory.slice(offset, len);
+        let mut i = 0;
+        while i < len {
+            if i < len - 4 {
+                if is_private_ref(&shared_mem[i..i + 4]) {
+                    println!("FOUND PRIVATE_REF");
+                    i += 31;
                 }
-                _ => todo!(),
             }
-        } else {
-            output = shared_mem.to_vec().into()
+            i += 1;
         }
+        output = shared_mem.to_vec().into();
     }
 
     interpreter.instruction_result = instruction_result;

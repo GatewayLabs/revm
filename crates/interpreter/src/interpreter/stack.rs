@@ -473,6 +473,12 @@ impl Stack {
             // eliminating an intemediate copy,
             // which is a condition we know to be true in this context.
             let top = self.data.as_mut_ptr().add(len - 1);
+            println!("EXCHANGE top: {:?}", top);
+            println!("EXCHANGE n: {:?}", n);
+            println!("EXCHANGE m: {:?}", m);
+            println!("EXCHANGE top.sub(n): {:?}", *top.sub(n));
+            println!("EXCHANGE top.sub(m): {:?}", *top.sub(m));
+            println!("EXCHANGE top.sub(n_m_index): {:?}", *top.sub(n_m_index));
             core::ptr::swap_nonoverlapping(top.sub(n), top.sub(n_m_index), 1);
         }
         Ok(())
