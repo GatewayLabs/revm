@@ -2,12 +2,12 @@ use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
 use crate::{
     gas,
     interpreter::{
-        private_memory::{is_private_ref, PrivateMemoryValue, PrivateRef},
+        private_memory::{is_private_ref, PrivateMemoryValue},
         StackValueData,
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
-use compute::uint::{GarbledUint, GarbledUint256};
+use compute::uint::GarbledUint;
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
 

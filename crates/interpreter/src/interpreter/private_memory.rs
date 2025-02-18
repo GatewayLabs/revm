@@ -276,13 +276,13 @@ mod test {
     use crate::{
         instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
         interpreter::{
-            private_memory::{is_private_ref, is_u256_private_ref, PrivateMemoryValue},
+            private_memory::{is_u256_private_ref, PrivateMemoryValue},
             PrivateMemory,
         },
     };
     use compute::{
         prelude::WRK17CircuitBuilder,
-        uint::{GarbledUint, GarbledUint256},
+        uint::GarbledUint256,
     };
     use primitives::U256;
 

@@ -5,7 +5,6 @@ use crate::{
     interpreter::{private_memory::PrivateMemoryValue, StackValueData},
     Host, InstructionResult, Interpreter,
 };
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Ciphertext, Keypair};
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
 
@@ -97,16 +96,6 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
         interpreter.contract.bytecode.original_byte_slice(),
     );
     println!("FINISH");
-}
-
-fn find_value_position(offset: usize) -> Option<(usize, usize)> {
-    if offset >= 68 && offset < 132 {
-        Some((1, offset - 68))
-    } else if offset >= 4 && offset < 68 {
-        Some((0, offset - 4))
-    } else {
-        None
-    }
 }
 
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

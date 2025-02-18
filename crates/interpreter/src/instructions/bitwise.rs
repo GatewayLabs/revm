@@ -6,8 +6,7 @@ use crate::{
     push_private_memory, Host, Interpreter,
 };
 use compute::{
-    operations::circuits::builder::GateIndex,
-    prelude::{CircuitExecutor, GateIndexVec},
+    prelude::CircuitExecutor,
     uint::GarbledUint256,
 };
 use core::cmp::Ordering;

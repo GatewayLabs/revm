@@ -1,7 +1,7 @@
 use crate::{
     gas,
     interpreter::{
-        private_memory::{is_u256_private_ref, PrivateMemoryValue, PrivateRef},
+        private_memory::{PrivateMemoryValue, PrivateRef},
         StackValueData,
     },
     Host, Interpreter,
