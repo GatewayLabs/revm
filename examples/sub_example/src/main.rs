@@ -6,7 +6,7 @@ use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
 use database::InMemoryDB;
 use interpreter::{
     instructions::utility::garbled_uint_to_ruint,
-    interpreter::{Interpreter, PrivateMemory, StackValueData},
+    interpreter::{Interpreter, PrivateMemory, PrivateMemoryValue, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
 };
@@ -182,15 +182,22 @@ fn main() -> anyhow::Result<()> {
                 println!("  Detected Private Value");
                 println!("  Gate Indices: {:?}", gate_indices);
 
+                let output_indices = interpreter.stack.pop().unwrap();
+                let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
+
+                let PrivateMemoryValue::Garbled(gates) = interpreter
+                    .private_memory
+                    .get(&private_ref.try_into().unwrap())
+                else {
+                    panic!("cannot find PrivateMemoryValue");
+                };
+
                 let start = Instant::now();
                 let result: GarbledUint256 = interpreter
                     .circuit_builder
                     .borrow()
-                    .compile_and_execute(&gate_indices)
-                    .map_err(|e| {
-                        println!("  Circuit Compilation Error: {:?}", e);
-                        e
-                    })?;
+                    .compile_and_execute(&gates)
+                    .unwrap();
 
                 let public_result = garbled_uint_to_ruint(&result);
 

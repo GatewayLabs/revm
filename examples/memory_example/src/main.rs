@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
 use interpreter::{
     instructions::utility::garbled_uint64_to_ruint,
-    interpreter::{Interpreter, PrivateMemory, StackValueData},
+    interpreter::{Interpreter, PrivateMemory, PrivateMemoryValue, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
 };
@@ -59,11 +59,21 @@ fn verify_garbled_value(
     match interpreter.stack().peek(index) {
         Ok(value) => match value {
             StackValueData::Private(gate_indices) => {
+                let output_indices = interpreter.stack.pop().unwrap();
+                let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
+
+                let PrivateMemoryValue::Garbled(gates) = interpreter
+                    .private_memory
+                    .get(&private_ref.try_into().unwrap())
+                else {
+                    panic!("cannot find PrivateMemoryValue");
+                };
+
                 let result: GarbledUint256 = interpreter
                     .circuit_builder
                     .borrow()
-                    .compile_and_execute(&gate_indices)
-                    .expect(&format!("Failed to execute {} verification circuit", name));
+                    .compile_and_execute(&gates)
+                    .unwrap();
 
                 println!("  Compiled bits: {:?}", result.bits);
                 println!("  Gate indices: {:?}", gate_indices);
