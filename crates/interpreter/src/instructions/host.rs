@@ -204,8 +204,6 @@ pub fn log<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, host
         return;
     }
 
-    // println!("log::is_private_ref: {}", is_bytes_private_tag(&data));
-
     let mut topics = Vec::with_capacity(N);
     for _ in 0..N {
         // SAFETY: stack bounds already checked few lines above

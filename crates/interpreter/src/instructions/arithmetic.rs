@@ -48,7 +48,6 @@ pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         &interpreter.circuit_builder.borrow(),
         &interpreter.private_memory,
     );
-    println!("{} - {}", evaluated_op1, evaluated_op2);
 
     let result = evaluated_op1.wrapping_sub(evaluated_op2);
     push_private_memory!(

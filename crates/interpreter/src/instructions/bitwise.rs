@@ -5,10 +5,7 @@ use crate::{
     interpreter::{private_memory::PrivateMemoryValue, StackValueData},
     push_private_memory, Host, Interpreter,
 };
-use compute::{
-    prelude::CircuitExecutor,
-    uint::GarbledUint256,
-};
+use compute::{prelude::CircuitExecutor, uint::GarbledUint256};
 use core::cmp::Ordering;
 use primitives::U256;
 use specification::hardfork::Spec;
@@ -220,8 +217,6 @@ pub fn shr<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &
     } else {
         U256::ZERO.into()
     };
-
-    println!("Shr: {:?}", op2_ptr);
 }
 
 /// EIP-145: Bitwise shifting instructions in EVM

@@ -281,7 +281,7 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
         while i < len {
             if i < len - 4 {
                 if is_private_ref(&shared_mem[i..i + 4]) {
-                    println!("FOUND PRIVATE_REF");
+                    println!("return_inner: PrivateRef found in shared_mem slice");
                     i += 31;
                 }
             }

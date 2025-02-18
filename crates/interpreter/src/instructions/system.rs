@@ -75,16 +75,13 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
 
     // let memory_offset = memory_offset.evaluate(interpreter);
     let code_offset = code_offset.evaluate_with_interpreter(interpreter);
-    println!("code_offset: {:?}", code_offset);
     let len = len.evaluate_with_interpreter(interpreter);
 
     let len = as_usize_or_fail!(interpreter, len);
-    println!("len: {:?}", len);
     let Some(memory_offset) = memory_resize(interpreter, memory_offset, len) else {
         return;
     };
     let code_offset = as_usize_saturated!(code_offset);
-    println!("code_offset2: {:?}", code_offset);
 
     // Inform the optimizer that the bytecode cannot be EOF to remove a bounds check.
     assume!(!interpreter.contract.bytecode.is_eof());
@@ -95,7 +92,6 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
         len,
         interpreter.contract.bytecode.original_byte_slice(),
     );
-    println!("FINISH");
 }
 
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

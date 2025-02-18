@@ -28,10 +28,7 @@ pub fn push<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _ho
 
     let val = unsafe { core::slice::from_raw_parts(ip, N) };
 
-    println!("Pushing: {:?}", val);
-
     if let Err(result) = interpreter.stack.push_slice(val) {
-        println!("Error: {:?}", result);
         interpreter.instruction_result = result;
         return;
     }
@@ -42,7 +39,6 @@ pub fn push<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _ho
 pub fn dup<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     if let Err(result) = interpreter.stack.dup(N) {
-        println!("DUP1 Error: {:?}", result);
         interpreter.instruction_result = result;
     }
 }
@@ -50,7 +46,6 @@ pub fn dup<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _hos
 pub fn swap<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     if let Err(result) = interpreter.stack.swap(N) {
-        println!("SWAP1 Error: {:?}", result);
         interpreter.instruction_result = result;
     }
 }

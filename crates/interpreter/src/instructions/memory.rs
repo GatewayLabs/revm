@@ -39,13 +39,6 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
     let from_memory: U256 = interpreter.shared_memory.get_u256(offset).into();
 
-    // println!(
-    //     "mload::is_u256_private_tag: {}",
-    //     is_u256_private_ref(&from_memory)
-    // );
-
-    // println!("mload::from_memory: {:?}", from_memory);
-
     *top_ptr = from_memory.into();
 }
 

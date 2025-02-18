@@ -426,17 +426,6 @@ impl Interpreter {
         // main loop
         while self.instruction_result == InstructionResult::Continue {
             self.step(instruction_table, host);
-            // println!("Stack: {:?}", self.stack);
-            // println!(
-            //     "Stack evaluated: {:?}",
-            //     self.stack
-            //         .data()
-            //         .iter()
-            //         .map(|x| x.evaluate(self))
-            //         .collect::<Vec<_>>()
-            // );
-            // println!("Memory: {:?}", self.shared_memory.buffer);
-            // println!("Private: {:?}", self.private_memory.data);
         }
 
         // Return next action if it is some.
