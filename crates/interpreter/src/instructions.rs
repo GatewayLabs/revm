@@ -31,8 +31,6 @@ pub const fn instruction_table<H: Host + ?Sized, SPEC: Spec>() -> [crate::table:
     let mut table = [control::unknown as crate::table::Instruction<H>; 256];
 
     table[STOP as usize] = control::stop;
-    table[ADD as usize] = arithmetic::add;
-    table[STOP as usize] = control::stop;
 
     table[ADD as usize] = arithmetic::add;
     table[MUL as usize] = arithmetic::mul;

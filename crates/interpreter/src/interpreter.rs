@@ -6,8 +6,9 @@ pub(crate) mod shared_memory;
 mod stack;
 
 use crate::instructions::utility::ruint_to_garbled_uint;
-use bytecode::opcode::OpCode;
+use bytecode::opcode::{OpCode, OPCODE_INFO};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
+use compute::uint::GarbledUint256;
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, PrivateMemoryValue, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
@@ -27,8 +28,6 @@ use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::rc::Rc;
 use std::sync::Arc;
-
-pub const MAX_STEPS: usize = 10000;
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -443,13 +442,15 @@ impl Interpreter {
         // IMPORTANT: When we encounter a jump-style opcode (JUMP or JUMPI),
         // we update the PC via the opcode’s subcircuit and break out immediately,
         // so that we don’t add an extra increment in the run loop.
-        for _ in 0..MAX_STEPS {
+        while self.instruction_result == InstructionResult::Continue {
             // If we've reached or passed the end of the bytecode, treat it as STOP.
             let opcode = if public_pc < self.bytecode.len() {
                 self.bytecode[public_pc]
             } else {
                 0x00 // STOP opcode.
             };
+
+            println!("🔁 Step: {:#?}", OPCODE_INFO[opcode as usize]);
 
             // Create a constant wire for the current public PC.
             let pc_const = self.create_pc_wire(public_pc);
@@ -470,9 +471,9 @@ impl Interpreter {
                 let mut bytes = [0u8; 32];
                 if public_pc + 1 + n <= self.bytecode.len() {
                     let data_slice = &self.bytecode[public_pc + 1..public_pc + 1 + n];
-                    bytes[32 - n..].copy_from_slice(data_slice);
+                    bytes[..n].copy_from_slice(data_slice);
                 }
-                let push_value = U256::from_be_bytes(bytes);
+                let push_value = U256::from_le_bytes(bytes);
                 self.stack.push_stack_value_data(push_value.into()).unwrap();
 
                 public_pc = next_pc;
@@ -528,7 +529,7 @@ impl Interpreter {
             let result = cb
                 .execute::<256>(&circuit)
                 .expect("Failed to execute circuit");
-            let final_pc = garbled_uint_to_ruint::<256>(&result).as_limbs()[0] as usize;
+            let final_pc = U256::try_from(result).unwrap().as_limbs()[0] as usize;
             self.instruction_pointer = unsafe { self.bytecode.as_ptr().add(final_pc) };
 
             if final_pc >= self.bytecode.len() {
@@ -551,7 +552,7 @@ impl Interpreter {
 
     /// Creates a circuit wire for a PC value
     pub(crate) fn create_pc_wire(&mut self, pc: usize) -> GateIndexVec {
-        let pc_garbled = ruint_to_garbled_uint(&U256::from(pc));
+        let pc_garbled = GarbledUint256::from(U256::from(pc));
         self.circuit_builder.borrow_mut().constant(&pc_garbled)
     }
 
