@@ -95,7 +95,6 @@ pub fn bitand<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.and(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    // *op2 = StackValueData::Private(GateIndexVec::from(result));
     push_private_memory!(interpreter, result, op2);
 }
 
@@ -107,7 +106,6 @@ pub fn bitor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.or(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    // *op2 = StackValueData::Private(GateIndexVec::from(result));
     push_private_memory!(interpreter, result, op2);
 }
 
@@ -119,7 +117,6 @@ pub fn bitxor<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.xor(&garbled_op1, &garbled_op2);
     drop(cb);
 
-    // *op2 = StackValueData::Private(GateIndexVec::from(result));
     push_private_memory!(interpreter, result, op2);
 }
 
@@ -131,7 +128,6 @@ pub fn not<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let result = cb.not(&garbled_op1);
     drop(cb);
 
-    // *op1 = StackValueData::Private(GateIndexVec::from(result));
     push_private_memory!(interpreter, result, op1);
 }
 
