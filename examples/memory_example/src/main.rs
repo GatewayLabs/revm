@@ -1,9 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
-use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
+use compute::prelude::WRK17CircuitBuilder;
 use interpreter::{
-    instructions::utility::garbled_uint_to_ruint,
-    interpreter::{Interpreter, PrivateMemory, PrivateMemoryValue, StackValueData},
+    interpreter::{Interpreter, PrivateMemory, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
 };
@@ -61,33 +60,16 @@ fn verify_garbled_value(
     println!("\nVerifying {:?}. Expected: {:?}:", name, expected.map(U256::from));
     match interpreter.stack().peek(index) {
         Ok(value) => match value {
-            StackValueData::Private(gate_indices) => {
+            StackValueData::Private(_) => {
                 println!("Private value ({:?})", name);
-                let output_indices = interpreter.stack.pop().unwrap();
-                let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
+                let val = interpreter.stack.pop().unwrap();
+                let result = val.evaluate_with_interpreter(&interpreter);
 
-                let PrivateMemoryValue::Garbled(gates) = interpreter
-                    .private_memory
-                    .get(&private_ref.try_into().unwrap())
-                else {
-                    panic!("cannot find PrivateMemoryValue");
-                };
-
-                let result: GarbledUint256 = interpreter
-                    .circuit_builder
-                    .borrow()
-                    .compile_and_execute(&gates)
-                    .unwrap();
-
-                println!("  Compiled bits: {:?}", result.bits);
-                println!("  Gate indices: {:?}", gate_indices);
-
-                let computed_result = garbled_uint_to_ruint(&result);
-                println!("  {} result: 0x{:x}", name, computed_result);
+                println!("  {} result: 0x{:x}", name, result);
 
                 if let Some(expected) = expected {
                     assert_eq!(
-                        computed_result.as_limbs()[0],
+                        result.as_limbs()[0],
                         expected,
                         "{} result does not match expected value",
                         name

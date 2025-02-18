@@ -2,13 +2,12 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
+use compute::prelude::WRK17CircuitBuilder;
 use std::time::Instant;
 
 use database::InMemoryDB;
 use interpreter::{
-    instructions::utility::garbled_uint_to_ruint,
-    interpreter::{Interpreter, PrivateMemory, PrivateMemoryValue, StackValueData},
+    interpreter::{Interpreter, PrivateMemory, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
 };
@@ -184,26 +183,11 @@ fn main() -> anyhow::Result<()> {
                 println!("  Detected Private Value");
                 println!("  Gate Indices: {:?}", gate_indices);
 
-                let output_indices = interpreter.stack.pop().unwrap();
-                let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
-
-                let PrivateMemoryValue::Garbled(gates) = interpreter
-                    .private_memory
-                    .get(&private_ref.try_into().unwrap())
-                else {
-                    panic!("cannot find PrivateMemoryValue");
-                };
-
                 let start = Instant::now();
-                let result: GarbledUint256 = interpreter
-                    .circuit_builder
-                    .borrow()
-                    .compile_and_execute(&gates)
-                    .unwrap();
+                let val = interpreter.stack.pop().unwrap();
+                let result = val.evaluate_with_interpreter(&interpreter);
 
-                let public_result = garbled_uint_to_ruint(&result);
-
-                println!("  Private Computation Result: {:?}", public_result);
+                println!("  Private Computation Result: {:?}", result);
                 let elapsed = start.elapsed();
                 println!("Total execution time: {:.2?}", elapsed);
 
@@ -212,7 +196,7 @@ fn main() -> anyhow::Result<()> {
                 println!("  Expected Result: {}", expected_result);
 
                 assert_eq!(
-                    public_result.to_string(),
+                    result.to_string(),
                     expected_result.to_string(),
                     "Private computation result does not match expected value"
                 );
