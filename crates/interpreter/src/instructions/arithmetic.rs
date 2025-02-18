@@ -189,6 +189,11 @@ mod tests {
         DummyHost::default()
     }
 
+    fn pop_evaluated_private_value(interpreter: &mut Interpreter) -> U256 {
+        let output_indices = interpreter.stack.pop().unwrap();
+        output_indices.evaluate_with_interpreter(&interpreter)
+    }
+
     #[test]
     fn test_add() {
         let mut interpreter = generate_interpreter();
@@ -209,26 +214,12 @@ mod tests {
 
         add(&mut interpreter, &mut host);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-        let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
-
-        if !is_u256_private_ref(&private_ref) {
-            panic!("private ref is not valid")
-        }
-        let PrivateMemoryValue::Garbled(gates) = interpreter
-            .private_memory
-            .get(&private_ref.try_into().unwrap())
-        else {
-            panic!("cannot find PrivateMemoryValue");
-        };
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&gates)
-            .unwrap();
         let expected_result = Uint::<256, 4>::from(18u64);
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -252,24 +243,10 @@ mod tests {
 
         let expected_result = Uint::<256, 4>::from(70u64);
 
-        let StackValueData::Public(output_indices) = interpreter.stack.pop().unwrap() else {
-            panic!("Unable to read stack data");
-        };
-
-        let PrivateMemoryValue::Garbled(gates) = interpreter
-            .private_memory
-            .get(&PrivateRef::try_from(output_indices).unwrap())
-        else {
-            panic!("PrivateMemoryValue::Encrypted not supported yet")
-        };
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&gates)
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -297,24 +274,10 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(2000u64);
 
-        let StackValueData::Public(output_indices) = interpreter.stack.pop().unwrap() else {
-            panic!("Unable to read stack data");
-        };
-
-        let PrivateMemoryValue::Garbled(gates) = interpreter
-            .private_memory
-            .get(&PrivateRef::try_from(output_indices).unwrap())
-        else {
-            panic!("PrivateMemoryValue::Encrypted not supported yet")
-        };
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&gates.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -342,24 +305,10 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(5u64);
 
-        let StackValueData::Public(output_indices) = interpreter.stack.pop().unwrap() else {
-            panic!("Unable to read stack data");
-        };
-
-        let PrivateMemoryValue::Garbled(gates) = interpreter
-            .private_memory
-            .get(&PrivateRef::try_from(output_indices).unwrap())
-        else {
-            panic!("PrivateMemoryValue::Encrypted not supported yet")
-        };
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&gates.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -387,23 +336,9 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(0u64);
 
-        let StackValueData::Public(val) = interpreter.stack.pop().unwrap() else {
-            panic!("test_rem: popped unexpected StackValueData type")
-        };
-        if is_u256_private_ref(&val) {
-            let PrivateMemoryValue::Garbled(output_indices) = interpreter.private_memory.get(
-                &PrivateRef::try_from(val)
-                    .expect("test_rem: Unable to construct PrivateRef from U256"),
-            ) else {
-                panic!("test_rem: Unexpected PrivateMemoryValue type")
-            };
-            let result: GarbledUint256 = interpreter
-                .circuit_builder
-                .borrow()
-                .compile_and_execute(&output_indices.into())
-                .unwrap();
-
-            assert_eq!(garbled_uint_to_ruint(&result), expected_result);
-        }
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 }
