@@ -1,11 +1,5 @@
-use crate::{
-    instructions::utility::{garbled_uint_to_ruint, ruint_to_garbled_uint},
-    InstructionResult,
-};
-use compute::{
-    prelude::{CircuitExecutor, GateIndexVec, WRK17CircuitBuilder},
-    uint::{GarbledUint, GarbledUint256},
-};
+use crate::InstructionResult;
+use compute::prelude::WRK17CircuitBuilder;
 use core::{fmt, ptr};
 use encryption::{
     elgamal::{Ciphertext, ElGamalEncryption, Keypair},

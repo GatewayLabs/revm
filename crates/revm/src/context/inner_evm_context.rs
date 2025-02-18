@@ -3,7 +3,7 @@ use bytecode::{Bytecode, Eof, EOF_MAGIC_BYTES, EOF_MAGIC_HASH};
 use database_interface::Database;
 use derive_where::derive_where;
 use interpreter::{
-    gas, interpreter::StackValueData, return_ok, AccountLoad, Eip7702CodeLoad, InstructionResult,
+    gas, return_ok, AccountLoad, Eip7702CodeLoad, InstructionResult,
     InterpreterResult, SStoreResult, SelfDestructResult, StateLoad,
 };
 use primitives::{Address, Bytes, HashSet, B256, U256};
