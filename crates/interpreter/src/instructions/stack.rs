@@ -25,15 +25,15 @@ pub fn push<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _ho
     // SAFETY: In analysis we append trailing bytes to the bytecode so that this is safe to do
     // without bounds checking.
     let ip = interpreter.instruction_pointer;
-    println!("push<{:?}>", N);
-    if let Err(result) = interpreter
-        .stack
-        .push_slice(unsafe { core::slice::from_raw_parts(ip, N) })
-    {
+
+    let val = unsafe { core::slice::from_raw_parts(ip, N) };
+
+    if let Err(result) = interpreter.stack.push_slice(val) {
         interpreter.instruction_result = result;
         return;
     }
-    interpreter.instruction_pointer = unsafe { ip.add(N) };
+    let next_ip = unsafe { ip.add(N) };
+    interpreter.instruction_pointer = next_ip;
 }
 
 pub fn dup<const N: usize, H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

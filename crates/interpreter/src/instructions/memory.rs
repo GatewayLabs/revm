@@ -1,6 +1,9 @@
 use crate::{
     gas,
-    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
+    interpreter::{
+        private_memory::{PrivateMemoryValue, PrivateRef},
+        StackValueData,
+    },
     Host, Interpreter,
 };
 use core::cmp::max;
@@ -9,60 +12,53 @@ use specification::hardfork::Spec;
 
 pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, top);
-    let shared_mem_offset = top.evaluate(&interpreter.circuit_builder.borrow());
-    let shared_mem_offset = as_usize_or_fail!(interpreter, shared_mem_offset);
-    resize_memory!(interpreter, shared_mem_offset, 32);
-    let shared_mem = interpreter.shared_memory.get_u256(shared_mem_offset);
+    pop_top!(interpreter, top_ptr);
 
-    if crate::interpreter::private_memory::is_private_tag(shared_mem.as_le_slice()) {
-        let out = match interpreter
-            .private_memory
-            .get(shared_mem.try_into().unwrap())
-        {
-            PrivateMemoryValue::Private(val) => StackValueData::Private(val),
-            _ => panic!("Cannot mload invalid PrivateMemoryValue type"),
-        };
-        *top = out;
-    } else {
-        *top = StackValueData::Public(shared_mem);
-    }
+    let top: U256 = match top_ptr {
+        StackValueData::Public(top) => *top,
+        StackValueData::Private(top_ptr) => {
+            let val_private = interpreter.private_memory.get(
+                &PrivateRef::try_from(*top_ptr)
+                    .expect("evaluate: unable to construct PrivateRef from U256"),
+            );
+            let PrivateMemoryValue::Garbled(gates) = val_private else {
+                panic!("evaluate: unsupported PrivateMemoryValue type")
+            };
+            let result = interpreter
+                .circuit_builder
+                .borrow()
+                .compile_and_execute(&gates)
+                .expect("Failed to evaluate private value");
+            result.try_into().unwrap()
+        }
+        _ => panic!("Unsupported StackValueData type"),
+    };
+
+    let offset = as_usize_or_fail!(interpreter, top);
+    resize_memory!(interpreter, offset, 32);
+
+    let from_memory: U256 = interpreter.shared_memory.get_u256(offset).into();
+
+    *top_ptr = from_memory.into();
 }
 
 pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
 
-    let offset = offset.evaluate(&interpreter.circuit_builder.borrow());
+    let offset = offset.evaluate_with_interpreter(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
 
     resize_memory!(interpreter, offset, 32);
-
-    match value {
-        StackValueData::Public(value) => interpreter.shared_memory.set_u256(offset, value),
-        StackValueData::Private(value) => {
-            let private_ref = interpreter
-                .private_memory
-                .push(PrivateMemoryValue::Private(value));
-            interpreter
-                .shared_memory
-                .set_u256(offset, private_ref.into());
-        }
-        StackValueData::Encrypted(value) => {
-            let private_ref = interpreter
-                .private_memory
-                .push(PrivateMemoryValue::Encrypted(value));
-            interpreter
-                .shared_memory
-                .set_u256(offset, private_ref.into());
-        }
-    }
+    interpreter
+        .shared_memory
+        .set_u256(offset, value.evaluate_with_interpreter(&interpreter));
 }
 
 pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
-    let offset = offset.evaluate(&interpreter.circuit_builder.borrow());
+    let offset = offset.evaluate_with_interpreter(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
     resize_memory!(interpreter, offset, 1);
 
@@ -83,18 +79,18 @@ pub fn msize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 // EIP-5656: MCOPY - Memory copying instruction
 pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, CANCUN);
-    pop!(interpreter, dst, src, len);
+    pop!(interpreter, src, dst, len);
 
     // into usize or fail
-    let len = as_usize_or_fail!(interpreter, len);
+    let len = as_usize_or_fail!(interpreter, len.evaluate_with_interpreter(&interpreter));
     // deduce gas
     gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64));
     if len == 0 {
         return;
     }
 
-    let dst = as_usize_or_fail!(interpreter, dst);
-    let src = as_usize_or_fail!(interpreter, src);
+    let dst = as_usize_or_fail!(interpreter, dst.evaluate_with_interpreter(&interpreter));
+    let src = as_usize_or_fail!(interpreter, src.evaluate_with_interpreter(&interpreter));
     // resize memory
     resize_memory!(interpreter, max(dst, src), len);
     // copy memory in place

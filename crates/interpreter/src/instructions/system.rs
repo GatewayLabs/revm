@@ -1,5 +1,10 @@
-use crate::{gas, interpreter::StackValueData, Host, InstructionResult, Interpreter};
-use encryption::{elgamal::ElGamalEncryption, encryption_trait::Encryptor, Ciphertext, Keypair};
+use core::ptr;
+
+use crate::{
+    gas,
+    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
+    Host, InstructionResult, Interpreter,
+};
 use primitives::{B256, KECCAK_EMPTY, U256};
 use specification::hardfork::Spec;
 
@@ -67,6 +72,11 @@ pub fn codesize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
 
 pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop!(interpreter, memory_offset, code_offset, len);
+
+    // let memory_offset = memory_offset.evaluate(interpreter);
+    let code_offset = code_offset.evaluate_with_interpreter(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
+
     let len = as_usize_or_fail!(interpreter, len);
     let Some(memory_offset) = memory_resize(interpreter, memory_offset, len) else {
         return;
@@ -84,92 +94,51 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
     );
 }
 
-fn find_value_position(offset: usize) -> Option<(usize, usize)> {
-    if offset >= 68 && offset < 132 {
-        Some((1, offset - 68))
-    } else if offset >= 4 && offset < 68 {
-        Some((0, offset - 4))
-    } else {
-        None
-    }
-}
-
-fn decrypt_and_convert_value(
-    input: &[u8],
-    keypair: &Keypair,
-    value_index: usize,
-    value_offset: usize,
-) -> Option<B256> {
-    if value_offset >= 32 {
-        return None;
-    }
-
-    let start_pos = 4 + (value_index * 64);
-    if start_pos + 64 > input.len() {
-        return None;
-    }
-
-    let ciphertext = bincode::deserialize::<Ciphertext>(&input[start_pos..start_pos + 64]).ok()?;
-    let decrypted = ElGamalEncryption::decrypt(&ciphertext, keypair).ok()?;
-
-    let mut word = B256::ZERO;
-    let len = decrypted.len().min(32 - value_offset);
-    word[32 - len..].copy_from_slice(&decrypted[..len]);
-
-    Some(word)
-}
-
-fn extract_value_from_b256(word: B256) -> u64 {
-    let bytes = word.as_slice();
-    let mut result = bytes[23] as u64;
-    if bytes[24] != 0 {
-        result = (result << 8) | (bytes[24] as u64);
-    }
-    result
-}
-
-pub fn extract_word(
-    input: &[u8],
-    keypair: Option<&Keypair>,
-    offset: usize,
-) -> (B256, Option<StackValueData>) {
-    if offset < input.len() {
-        // Try to decrypt encrypted values
-        if let Some((value_index, value_offset)) = find_value_position(offset) {
-            if let Some(keypair) = keypair {
-                if let Some(decrypted_word) =
-                    decrypt_and_convert_value(input, keypair, value_index, value_offset)
-                {
-                    let new_word = extract_value_from_b256(decrypted_word);
-                    return (
-                        decrypted_word,
-                        Some(StackValueData::from(U256::from(new_word))),
-                    );
-                }
-            }
-        }
-
-        // If decryption failed or not needed, copy raw bytes
-        let mut word = B256::ZERO;
-        let count = 32.min(input.len() - offset);
-        word[..count].copy_from_slice(&input[offset..offset + count]);
-        (word, None)
-    } else {
-        (B256::ZERO, None)
-    }
-}
-
 pub fn calldataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop_top!(interpreter, offset_ptr);
-    let offset = as_usize_saturated!(offset_ptr);
+    let mut word = B256::ZERO;
 
-    let (word, val) = extract_word(
-        &interpreter.contract.input,
-        interpreter.encryption_keypair.as_ref(),
-        offset,
-    );
-    *offset_ptr = val.unwrap_or(word.into());
+    let offset = match offset_ptr {
+        StackValueData::Public(offset_ptr) => {
+            as_usize_saturated!(offset_ptr)
+        }
+        StackValueData::Private(offset_ptr) => {
+            let PrivateMemoryValue::Garbled(offset_ptr) =
+                interpreter.private_memory.get(offset_ptr)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+            let offset: U256 = U256::from(
+                interpreter
+                    .circuit_builder
+                    .borrow_mut()
+                    .compile_and_execute(&offset_ptr)
+                    .expect("calldataload: error computing offset"),
+            );
+
+            as_usize_saturated!(offset)
+        }
+        _ => panic!("Unsupported StackValueData type"),
+    };
+
+    if offset < interpreter.contract.input.len() {
+        let count = 32.min(interpreter.contract.input.len() - offset);
+        // SAFETY: count is bounded by the calldata length.
+        // This is `word[..count].copy_from_slice(input[offset..offset + count])`, written using
+        // raw pointers as apparently the compiler cannot optimize the slice version, and using
+        // `get_unchecked` twice is uglier.
+        debug_assert!(count <= 32 && offset + count <= interpreter.contract.input.len());
+        unsafe {
+            ptr::copy_nonoverlapping(
+                interpreter.contract.input.as_ptr().add(offset),
+                word.as_mut_ptr(),
+                count,
+            )
+        };
+    }
+
+    *offset_ptr = word.into();
 }
 
 pub fn calldatasize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -187,6 +156,10 @@ pub fn callvalue<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
 
 pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop!(interpreter, memory_offset, data_offset, len);
+
+    let data_offset = data_offset.evaluate_with_interpreter(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
+
     let len = as_usize_or_fail!(interpreter, len);
     let Some(memory_offset) = memory_resize(interpreter, memory_offset, len) else {
         return;
@@ -215,6 +188,9 @@ pub fn returndatacopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
     check!(interpreter, BYZANTIUM);
     pop!(interpreter, memory_offset, offset, len);
 
+    let offset = offset.evaluate_with_interpreter(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
+
     let len = as_usize_or_fail!(interpreter, len);
     let data_offset = as_usize_saturated!(offset);
 
@@ -242,8 +218,30 @@ pub fn returndatacopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
 pub fn returndataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, offset);
-    let offset_usize = as_usize_saturated!(offset);
+    pop_top!(interpreter, offset_ptr);
+
+    let offset_usize = match offset_ptr {
+        StackValueData::Public(offset_ptr) => {
+            as_usize_saturated!(offset_ptr)
+        }
+        StackValueData::Private(offset_ptr) => {
+            let PrivateMemoryValue::Garbled(offset_ptr) =
+                interpreter.private_memory.get(offset_ptr)
+            else {
+                panic!("Unsupported PrivateMemoryValue type");
+            };
+            let offset: U256 = U256::from(
+                interpreter
+                    .circuit_builder
+                    .borrow_mut()
+                    .compile_and_execute(&offset_ptr)
+                    .expect("calldataload: error computing offset"),
+            );
+
+            as_usize_saturated!(offset)
+        }
+        _ => panic!("Unsupported StackValueData type"),
+    };
 
     let mut output = [0u8; 32];
     if let Some(available) = interpreter
@@ -257,7 +255,7 @@ pub fn returndataload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &m
         );
     }
 
-    *offset = B256::from(output).into();
+    *offset_ptr = B256::from(output).into();
 }
 
 pub fn gas<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -274,7 +272,11 @@ pub fn memory_resize(
     if len == 0 {
         return None;
     }
-    let memory_offset = as_usize_or_fail_ret!(interpreter, memory_offset.to_u256(), None);
+    let memory_offset = as_usize_or_fail_ret!(
+        interpreter,
+        memory_offset.evaluate_with_interpreter(interpreter),
+        None
+    );
     resize_memory!(interpreter, memory_offset, len, None);
 
     Some(memory_offset)

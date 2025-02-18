@@ -1,9 +1,8 @@
 use super::constants::*;
 use crate::{
-    num_words, AccountLoad, Eip7702CodeLoad, Interpreter, SStoreResult, SelfDestructResult,
+    num_words, AccountLoad, Eip7702CodeLoad, SStoreResult, SelfDestructResult,
     StateLoad,
 };
-use compute::prelude::WRK17CircuitBuilder;
 use primitives::U256;
 use specification::{eip7702, hardfork::SpecId};
 use transaction::AccessListTrait;

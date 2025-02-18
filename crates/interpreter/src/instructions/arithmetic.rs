@@ -1,57 +1,76 @@
 use super::i256::{i256_div, i256_mod};
-use crate::{gas, interpreter::StackValueData, Host, Interpreter};
-use compute::prelude::CircuitExecutor;
+use crate::{
+    gas,
+    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
+    push_private_memory, Host, Interpreter,
+};
+use compute::{prelude::CircuitExecutor, uint::GarbledUint256};
 use primitives::U256;
 use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, op1, op2, op1_gates, op2_gates);
 
     // creates the sum circuit using the circuit builder
     let result = interpreter
         .circuit_builder
         .borrow_mut()
-        .add(&garbled_op1, &garbled_op2);
+        .add(&op1_gates, &op2_gates);
 
-    // Always save as StackDataValue::Private
-    *op2 = StackValueData::Private(result);
+    push_private_memory!(interpreter, result, op2);
 }
 
 pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, op1_gates, op2_gates);
 
     let result = interpreter
         .circuit_builder
         .borrow_mut()
-        .mul(&garbled_op1, &garbled_op2);
+        .mul(&op1_gates, &op2_gates);
 
-    *op2 = StackValueData::Private(result);
+    push_private_memory!(interpreter, result, op2);
 }
 
+// TODO: Audit circuit subtractionst
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::VERYLOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top!(interpreter, op1, op2_ptr);
 
-    let result = interpreter
-        .circuit_builder
-        .borrow_mut()
-        .sub(&garbled_op1, &garbled_op2);
+    let op2 = (*op2_ptr).clone();
 
-    *op2 = StackValueData::Private(result);
+    // Evaluate op1 before borrowing circuit_builder
+    let evaluated_op1 = op1.evaluate(
+        &interpreter.circuit_builder.borrow(),
+        &interpreter.private_memory,
+    );
+    let evaluated_op2 = op2.evaluate(
+        &interpreter.circuit_builder.borrow(),
+        &interpreter.private_memory,
+    );
+
+    let result = evaluated_op1.wrapping_sub(evaluated_op2);
+    push_private_memory!(
+        interpreter,
+        interpreter
+            .circuit_builder
+            .borrow_mut()
+            .input(&GarbledUint256::from(result)),
+        op2_ptr
+    );
+    *op2_ptr = StackValueData::Public(evaluated_op1.wrapping_sub(evaluated_op2));
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let result = interpreter
         .circuit_builder
         .borrow_mut()
         .div(&garbled_op1, &garbled_op2);
 
-    *op2 = StackValueData::Private(result);
+    push_private_memory!(interpreter, result, op2);
 }
 
 //TODO: Implement circuit for signed division
@@ -64,14 +83,14 @@ pub fn sdiv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 
 pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
-    pop_top_gates!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
 
     let result = interpreter
         .circuit_builder
         .borrow_mut()
         .rem(&garbled_op1, &garbled_op2);
 
-    *op2 = StackValueData::Private(result);
+    push_private_memory!(interpreter, result, op2);
 }
 
 //TODO: Implement circuit for signed modulo
@@ -143,7 +162,11 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::{instructions::utility::garbled_uint_to_ruint, Contract, DummyHost};
+    use crate::{
+        instructions::utility::garbled_uint_to_ruint,
+        interpreter::private_memory::{is_u256_private_ref, PrivateRef},
+        Contract, DummyHost,
+    };
     use compute::{prelude::WRK17CircuitBuilder, uint::GarbledUint256};
     use primitives::ruint::Uint;
 
@@ -163,6 +186,11 @@ mod tests {
         wiring::EthereumWiring<database_interface::EmptyDBTyped<core::convert::Infallible>, ()>,
     > {
         DummyHost::default()
+    }
+
+    fn pop_evaluated_private_value(interpreter: &mut Interpreter) -> U256 {
+        let output_indices = interpreter.stack.pop().unwrap();
+        output_indices.evaluate_with_interpreter(&interpreter)
     }
 
     #[test]
@@ -185,16 +213,12 @@ mod tests {
 
         add(&mut interpreter, &mut host);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&output_indices.into())
-            .unwrap();
         let expected_result = Uint::<256, 4>::from(18u64);
 
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -218,15 +242,10 @@ mod tests {
 
         let expected_result = Uint::<256, 4>::from(70u64);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&output_indices.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -254,15 +273,10 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(2000u64);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&output_indices.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -290,15 +304,10 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(5u64);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&output_indices.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 
     #[test]
@@ -326,14 +335,9 @@ mod tests {
         // Check the result
         let expected_result = Uint::<256, 4>::from(0u64);
 
-        let output_indices = interpreter.stack.pop().unwrap();
-
-        let result: GarbledUint256 = interpreter
-            .circuit_builder
-            .borrow()
-            .compile_and_execute(&output_indices.into())
-            .unwrap();
-
-        assert_eq!(garbled_uint_to_ruint(&result), expected_result);
+        assert_eq!(
+            pop_evaluated_private_value(&mut interpreter),
+            expected_result
+        );
     }
 }

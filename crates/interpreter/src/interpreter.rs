@@ -8,7 +8,7 @@ mod stack;
 use bytecode::opcode::OpCode;
 use compute::prelude::WRK17CircuitBuilder;
 pub use contract::Contract;
-pub use private_memory::{PrivateMemory, EMPTY_PRIVATE_MEMORY};
+pub use private_memory::{PrivateMemory, PrivateMemoryValue, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
 

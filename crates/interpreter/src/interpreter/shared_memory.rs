@@ -10,7 +10,7 @@ use std::vec::Vec;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SharedMemory {
     /// The underlying buffer.
-    buffer: Vec<u8>,
+    pub buffer: Vec<u8>,
     /// Memory checkpoints for each depth.
     /// Invariant: these are always in bounds of `data`.
     checkpoints: Vec<usize>,

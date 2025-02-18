@@ -2,10 +2,9 @@
 
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
-use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
+use compute::prelude::WRK17CircuitBuilder;
 use database::InMemoryDB;
 use interpreter::{
-    instructions::utility::garbled_uint_to_ruint,
     interpreter::{Interpreter, PrivateMemory, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
@@ -177,33 +176,26 @@ fn main() -> anyhow::Result<()> {
     match interpreter.stack().peek(0) {
         Ok(value) => {
             println!("  Top of Stack Value: {:?}", value);
+            let expected_result = 75 - 13;
 
             if let StackValueData::Private(gate_indices) = value {
                 println!("  Detected Private Value");
                 println!("  Gate Indices: {:?}", gate_indices);
 
                 let start = Instant::now();
-                let result: GarbledUint256 = interpreter
-                    .circuit_builder
-                    .borrow()
-                    .compile_and_execute(&gate_indices)
-                    .map_err(|e| {
-                        println!("  Circuit Compilation Error: {:?}", e);
-                        e
-                    })?;
+                let val = interpreter.stack.pop().unwrap();
+                let result = val.evaluate_with_interpreter(&interpreter);
 
-                let public_result = garbled_uint_to_ruint(&result);
-
-                println!("  Private Computation Result: {:?}", public_result);
+                println!("  Private Computation Result: {:?}", result);
                 let elapsed = start.elapsed();
                 println!("Total execution time: {:.2?}", elapsed);
 
                 // Verification against expected result
-                let expected_result = 75 - 13;
+                
                 println!("  Expected Result: {}", expected_result);
 
                 assert_eq!(
-                    public_result.to_string(),
+                    result.to_string(),
                     expected_result.to_string(),
                     "Private computation result does not match expected value"
                 );

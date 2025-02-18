@@ -69,27 +69,6 @@ pub fn ruint_to_garbled_uint64(value: &Uint<256, 4>) -> GarbledUint<64> {
     GarbledUint::<64>::new(bits)
 }
 
-pub fn garbled_uint64_to_ruint<const N: usize>(value: &GarbledUint<N>) -> Uint<256, 4> {
-    // Ensure we don't exceed the maximum number of chunks
-    let chunk_count = (value.bits.len() + 7) / 8;
-    let bytes: Vec<u8> = value
-        .bits
-        .chunks(8)
-        .map(|chunk| {
-            chunk
-                .iter()
-                .enumerate()
-                .fold(0, |byte, (i, &bit)| byte | ((bit as u8) << i))
-        })
-        .collect();
-
-    // Create a full array of zeros
-    let mut array = [0u8; 32];
-    // Copy only the available bytes
-    array[..chunk_count].copy_from_slice(&bytes[..chunk_count]);
-    Uint::from_le_bytes(array)
-}
-
 pub fn garbled_uint_to_bool(value: &GarbledUint<256>) -> bool {
     value.bits[0]
 }

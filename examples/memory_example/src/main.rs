@@ -1,12 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
-use compute::prelude::{GarbledUint256, WRK17CircuitBuilder};
+use compute::prelude::WRK17CircuitBuilder;
 use interpreter::{
-    instructions::utility::garbled_uint64_to_ruint,
     interpreter::{Interpreter, PrivateMemory, StackValueData},
     table::make_instruction_table,
     Contract, DummyHost, SharedMemory,
 };
+use primitives::ruint::Uint;
 use revm::specification::hardfork::CancunSpec;
 use revm::wiring::DefaultEthereumWiring;
 use revm::{
@@ -15,27 +15,29 @@ use revm::{
 };
 
 const RUNTIME_CODE: &[u8] = &[
-    // Test 1: mstore/mload
-    0x60, 0x42, // PUSH1 0x42 (decimal 66)
-    0x60, 0x00, // PUSH1 0x00 (position 0)
-    0x52, // MSTORE
-    0x60, 0x00, // PUSH1 0x00 (position 0)
-    0x51, // MLOAD
-    // Test 2: mstore8
-    0x60, 0xFF, // PUSH1 0xFF
-    0x60, 0x20, // PUSH1 0x20 (position 32)
-    0x53, // MSTORE8
-    0x60, 0x20, // PUSH1 0x20 (position 32)
-    0x51, // MLOAD
-    // Test 3: mcopy
-    0x60, 0x20, // PUSH1 0x20 (length: 32)
-    0x60, 0x40, // PUSH1 0x40 (destination: 64)
-    0x60, 0x00, // PUSH1 0x00 (source: 0)
-    0x5e, // MCOPY
-    0x60, 0x40, // PUSH1 0x40 (position 64)
-    0x51, // MLOAD
-    // Test 4: msize
-    0x59, // MSIZE
+    0x60, 0x42,  // PUSH1 0x42 (decimal 66)
+    0x60, 0x00,  // PUSH1 0x00 (position 0)
+    0x52,        // MSTORE
+    
+    0x60, 0xFF,  // PUSH1 0xFF
+    0x60, 0x20,  // PUSH1 0x20 (position 32)
+    0x53,        // MSTORE8
+    
+    0x60, 0x20,  // PUSH1 0x20 (length: 32)
+    0x60, 0x40,  // PUSH1 0x40 (destination: 64)
+    0x60, 0x00,  // PUSH1 0x00 (source: 0)
+    0x5e,        // MCOPY
+    
+    0x60, 0x20,  // PUSH1 0x20
+    0x51,        // MLOAD - MSTORE8 (0xFF)
+    
+    0x60, 0x00,  // PUSH1 0x00
+    0x51,        // MLOAD - INITIAL (66)
+    
+    0x60, 0x40,  // PUSH1 0x40
+    0x51,        // MLOAD - MCOPY (66)
+    
+    0x59,        // MSIZE (96)
 ];
 
 fn print_bytecode_details(bytecode: &Bytes) {
@@ -55,26 +57,32 @@ fn verify_garbled_value(
     expected: Option<u64>,
     name: &str,
 ) -> anyhow::Result<()> {
-    println!("\nVerifying {}:", name);
+    println!("\nVerifying {:?}. Expected: {:?}:", name, expected.map(U256::from));
     match interpreter.stack().peek(index) {
         Ok(value) => match value {
-            StackValueData::Private(gate_indices) => {
-                let result: GarbledUint256 = interpreter
-                    .circuit_builder
-                    .borrow()
-                    .compile_and_execute(&gate_indices)
-                    .expect(&format!("Failed to execute {} verification circuit", name));
+            StackValueData::Private(_) => {
+                println!("Private value ({:?})", name);
+                let val = interpreter.stack.pop().unwrap();
+                let result = val.evaluate_with_interpreter(&interpreter);
 
-                println!("  Compiled bits: {:?}", result.bits);
-                println!("  Gate indices: {:?}", gate_indices);
-
-                let computed_result = garbled_uint64_to_ruint(&result);
-                println!("  {} result: 0x{:x}", name, computed_result);
+                println!("  {} result: 0x{:x}", name, result);
 
                 if let Some(expected) = expected {
                     assert_eq!(
-                        computed_result.as_limbs()[0],
+                        result.as_limbs()[0],
                         expected,
+                        "{} result does not match expected value",
+                        name
+                    );
+                }
+                Ok(())
+            },
+            StackValueData::Public(value) => {
+                println!("Public value ({:?}): {:?}", name, value);
+                if let Some(expected) = expected {
+                    assert_eq!(
+                        value,
+                        Uint::<256, 4>::from(expected),
                         "{} result does not match expected value",
                         name
                     );
@@ -116,10 +124,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n--- Private Memory Operation Verification ---");
 
-    verify_garbled_value(&mut interpreter, 0, Some(96), "MSIZE")?; // MSIZE -> 96
-    verify_garbled_value(&mut interpreter, 1, Some(0x42), "MCOPY LOAD")?; // MLOAD(0x40) -> 0x42
-    verify_garbled_value(&mut interpreter, 2, Some(0x42), "MSTORE8 LOAD")?; // MLOAD(0x20) -> 0x42
-    verify_garbled_value(&mut interpreter, 3, Some(0xff), "INITIAL LOAD")?; // MLOAD(0x00) -> 0xFF
+    verify_garbled_value(&mut interpreter, 0, Some(96), "MSIZE")?;          // Top of stack
+    verify_garbled_value(&mut interpreter, 1, Some(66), "MCOPY LOAD")?;     // Second from top
+    verify_garbled_value(&mut interpreter, 2, Some(66), "INITIAL LOAD")?;   // Third from top
+    verify_garbled_value(&mut interpreter, 3, Some(255), "MSTORE8 LOAD")?;  // Fourth from top
 
     println!("\n✅ All memory operations verified successfully!");
 
