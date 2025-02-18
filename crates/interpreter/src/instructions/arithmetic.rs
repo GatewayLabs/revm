@@ -1,15 +1,11 @@
 use super::i256::{i256_div, i256_mod};
 use crate::{
     gas,
-    interpreter::{
-        private_memory::{is_u256_private_ref, PrivateMemoryValue, PrivateRef},
-        StackValueData,
-    },
+    interpreter::{private_memory::PrivateMemoryValue, StackValueData},
     push_private_memory, Host, Interpreter,
 };
 use compute::{prelude::CircuitExecutor, uint::GarbledUint256};
 use primitives::U256;
-use serde::de::value;
 use specification::hardfork::Spec;
 
 pub fn add<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -37,24 +33,33 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     push_private_memory!(interpreter, result, op2);
 }
 
+// TODO: Audit circuit subtractionst
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
-    gas!(interpreter, gas::VERYLOW);
-    pop_top_private!(interpreter, _op1, op2, garbled_op1, garbled_op2);
+    pop_top!(interpreter, op1, op2_ptr);
 
-    let cb = interpreter.circuit_builder.borrow();
+    let op2 = (*op2_ptr).clone();
 
-    let op1_value: GarbledUint256 = cb.compile_and_execute(&garbled_op1).unwrap();
-    let op2_value: GarbledUint256 = cb.compile_and_execute(&garbled_op2).unwrap();
+    // Evaluate op1 before borrowing circuit_builder
+    let evaluated_op1 = op1.evaluate(
+        &interpreter.circuit_builder.borrow(),
+        &interpreter.private_memory,
+    );
+    let evaluated_op2 = op2.evaluate(
+        &interpreter.circuit_builder.borrow(),
+        &interpreter.private_memory,
+    );
+    println!("{} - {}", evaluated_op1, evaluated_op2);
 
-    println!("op1: {:?}", U256::from(op1_value));
-    println!("op2: {:?}", U256::from(op2_value));
-
-    let result = interpreter
-        .circuit_builder
-        .borrow_mut()
-        .sub(&garbled_op1, &garbled_op2);
-
-    push_private_memory!(interpreter, result, op2);
+    let result = evaluated_op1.wrapping_sub(evaluated_op2);
+    push_private_memory!(
+        interpreter,
+        interpreter
+            .circuit_builder
+            .borrow_mut()
+            .input(&GarbledUint256::from(result)),
+        op2_ptr
+    );
+    *op2_ptr = StackValueData::Public(evaluated_op1.wrapping_sub(evaluated_op2));
 }
 
 pub fn div<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
