@@ -1,6 +1,6 @@
 use crate::{
     gas::{self, warm_cold_cost, warm_cold_cost_with_delegation, CALL_STIPEND},
-    interpreter::{private_memory::is_bytes_private_tag, Interpreter},
+    interpreter::{private_memory::is_bytes_private_ref, Interpreter},
     Host, InstructionResult,
 };
 use core::cmp::min;
@@ -135,7 +135,7 @@ pub fn sstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     let Some(state_load) = host.sstore(
         interpreter.contract.target_address,
         index.into(),
-        value.evaluate(&interpreter),
+        value.evaluate_with_interpreter(&interpreter),
     ) else {
         interpreter.instruction_result = InstructionResult::FatalExternalError;
         return;
@@ -168,7 +168,7 @@ pub fn tstore<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, host:
     host.tstore(
         interpreter.contract.target_address,
         index.into(),
-        value.evaluate(&interpreter),
+        value.evaluate_with_interpreter(&interpreter),
     );
 }
 

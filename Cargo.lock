@@ -1954,6 +1954,7 @@ name = "example-abi-contract-deployment"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "compute",
  "revm",
  "revm-database",
  "revm-encryption",

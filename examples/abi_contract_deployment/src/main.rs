@@ -1,12 +1,10 @@
 //! Optimism-specific constants, types, and helpers.
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use anyhow::{anyhow, bail};
 use database::InMemoryDB;
 use encryption::Keypair;
 use revm::{
-    bytecode::opcode,
-    primitives::{hex, Bytes, TxKind, U256},
+    primitives::{hex, Bytes, TxKind},
     wiring::{
         result::{ExecutionResult, Output},
         EthereumWiring,

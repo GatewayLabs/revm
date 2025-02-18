@@ -75,9 +75,9 @@ pub fn codecopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) 
     pop!(interpreter, memory_offset, code_offset, len);
 
     // let memory_offset = memory_offset.evaluate(interpreter);
-    let code_offset = code_offset.evaluate(interpreter);
+    let code_offset = code_offset.evaluate_with_interpreter(interpreter);
     println!("code_offset: {:?}", code_offset);
-    let len = len.evaluate(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
 
     let len = as_usize_or_fail!(interpreter, len);
     println!("len: {:?}", len);
@@ -172,8 +172,8 @@ pub fn callvalue<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H)
 pub fn calldatacopy<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop!(interpreter, memory_offset, data_offset, len);
 
-    let data_offset = data_offset.evaluate(interpreter);
-    let len = len.evaluate(interpreter);
+    let data_offset = data_offset.evaluate_with_interpreter(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
 
     let len = as_usize_or_fail!(interpreter, len);
     let Some(memory_offset) = memory_resize(interpreter, memory_offset, len) else {
@@ -203,8 +203,8 @@ pub fn returndatacopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interprete
     check!(interpreter, BYZANTIUM);
     pop!(interpreter, memory_offset, offset, len);
 
-    let offset = offset.evaluate(interpreter);
-    let len = len.evaluate(interpreter);
+    let offset = offset.evaluate_with_interpreter(interpreter);
+    let len = len.evaluate_with_interpreter(interpreter);
 
     let len = as_usize_or_fail!(interpreter, len);
     let data_offset = as_usize_saturated!(offset);
@@ -287,8 +287,11 @@ pub fn memory_resize(
     if len == 0 {
         return None;
     }
-    let memory_offset =
-        as_usize_or_fail_ret!(interpreter, memory_offset.evaluate(interpreter), None);
+    let memory_offset = as_usize_or_fail_ret!(
+        interpreter,
+        memory_offset.evaluate_with_interpreter(interpreter),
+        None
+    );
     resize_memory!(interpreter, memory_offset, len, None);
 
     Some(memory_offset)

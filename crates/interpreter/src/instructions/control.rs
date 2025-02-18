@@ -269,12 +269,12 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
     // zero gas cost
     // gas!(interpreter, gas::ZERO);
     pop!(interpreter, offset, len);
-    let len = as_usize_or_fail!(interpreter, len.evaluate(&interpreter));
+    let len = as_usize_or_fail!(interpreter, len.evaluate_with_interpreter(&interpreter));
     // let len = as_usize_or_fail!(interpreter, U256::from(32));
     // important: offset must be ignored if len is zeros
     let mut output = Bytes::default();
     if len != 0 {
-        let offset = as_usize_or_fail!(interpreter, offset.evaluate(&interpreter));
+        let offset = as_usize_or_fail!(interpreter, offset.evaluate_with_interpreter(&interpreter));
         resize_memory!(interpreter, offset, len);
         let shared_mem = interpreter.shared_memory.slice(offset, len);
         let mut i = 0;

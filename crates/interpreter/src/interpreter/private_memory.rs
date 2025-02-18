@@ -49,7 +49,7 @@ impl Into<Uint<256, 4>> for PrivateRef {
 }
 
 #[inline]
-pub(crate) fn is_bytes_private_tag(bytes: &Bytes) -> bool {
+pub(crate) fn is_bytes_private_ref(bytes: &Bytes) -> bool {
     if bytes.len() < 4 {
         return false;
     } else {

@@ -278,7 +278,6 @@ macro_rules! pop_top {
 #[macro_export]
 macro_rules! pop_top_private {
     ($interp:expr, $x1:ident, $x1_priv:ident) => {
-        use crate::interpreter::private_memory::PrivateMemoryValue;
         pop_top!($interp, $x1);
 
         let mut cb = $interp.circuit_builder.borrow_mut();
@@ -299,7 +298,6 @@ macro_rules! pop_top_private {
         drop(cb);
     };
     ($interp:expr, $x1:ident, $x2:ident, $x1_priv:ident, $x2_priv:ident) => {
-        use crate::interpreter::private_memory::PrivateMemoryValue;
         pop_top!($interp, $x1, $x2);
 
         let mut cb = $interp.circuit_builder.borrow_mut();

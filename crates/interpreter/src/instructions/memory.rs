@@ -53,19 +53,19 @@ pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
 
-    let offset = offset.evaluate(&interpreter);
+    let offset = offset.evaluate_with_interpreter(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
 
     resize_memory!(interpreter, offset, 32);
     interpreter
         .shared_memory
-        .set_u256(offset, value.evaluate(&interpreter));
+        .set_u256(offset, value.evaluate_with_interpreter(&interpreter));
 }
 
 pub fn mstore8<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
     pop!(interpreter, offset, value);
-    let offset = offset.evaluate(&interpreter);
+    let offset = offset.evaluate_with_interpreter(&interpreter);
     let offset = as_usize_or_fail!(interpreter, offset);
     resize_memory!(interpreter, offset, 1);
 
@@ -89,15 +89,15 @@ pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host:
     pop!(interpreter, dst, src, len);
 
     // into usize or fail
-    let len = as_usize_or_fail!(interpreter, len.evaluate(&interpreter));
+    let len = as_usize_or_fail!(interpreter, len.evaluate_with_interpreter(&interpreter));
     // deduce gas
     gas_or_fail!(interpreter, gas::copy_cost_verylow(len as u64));
     if len == 0 {
         return;
     }
 
-    let dst = as_usize_or_fail!(interpreter, dst.evaluate(&interpreter));
-    let src = as_usize_or_fail!(interpreter, src.evaluate(&interpreter));
+    let dst = as_usize_or_fail!(interpreter, dst.evaluate_with_interpreter(&interpreter));
+    let src = as_usize_or_fail!(interpreter, src.evaluate_with_interpreter(&interpreter));
     // resize memory
     resize_memory!(interpreter, max(dst, src), len);
     // copy memory in place
