@@ -86,7 +86,7 @@ pub fn msize<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 // EIP-5656: MCOPY - Memory copying instruction
 pub fn mcopy<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     check!(interpreter, CANCUN);
-    pop!(interpreter, dst, src, len);
+    pop!(interpreter, src, dst, len);
 
     // into usize or fail
     let len = as_usize_or_fail!(interpreter, len.evaluate_with_interpreter(&interpreter));
