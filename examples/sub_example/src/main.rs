@@ -176,6 +176,7 @@ fn main() -> anyhow::Result<()> {
     match interpreter.stack().peek(0) {
         Ok(value) => {
             println!("  Top of Stack Value: {:?}", value);
+            let expected_result = 75 - 13;
 
             if let StackValueData::Private(gate_indices) = value {
                 println!("  Detected Private Value");
@@ -190,7 +191,7 @@ fn main() -> anyhow::Result<()> {
                 println!("Total execution time: {:.2?}", elapsed);
 
                 // Verification against expected result
-                let expected_result = 75 - 13;
+                
                 println!("  Expected Result: {}", expected_result);
 
                 assert_eq!(
@@ -202,6 +203,14 @@ fn main() -> anyhow::Result<()> {
                 println!("  ✅ Private Computation Verification Successful");
             } else {
                 println!("  Value is already public: {:?}", value);
+
+                assert_eq!(
+                    value.evaluate_with_interpreter(&interpreter).to_string(),
+                    expected_result.to_string(),
+                    "Private computation result does not match expected value"
+                );
+
+                println!("  ✅ Private Computation Verification Successful");
             }
         }
         Err(e) => {
