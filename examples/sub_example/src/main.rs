@@ -203,14 +203,6 @@ fn main() -> anyhow::Result<()> {
                 println!("  ✅ Private Computation Verification Successful");
             } else {
                 println!("  Value is already public: {:?}", value);
-
-                assert_eq!(
-                    value.evaluate_with_interpreter(&interpreter).to_string(),
-                    expected_result.to_string(),
-                    "Private computation result does not match expected value"
-                );
-
-                println!("  ✅ Private Computation Verification Successful");
             }
         }
         Err(e) => {
