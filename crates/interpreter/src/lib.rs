@@ -33,8 +33,8 @@ pub use host::{
 };
 pub use instruction_result::*;
 pub use interpreter::{
-    num_words, Contract, Interpreter, InterpreterResult, SharedMemory, Stack, EMPTY_SHARED_MEMORY,
-    STACK_LIMIT,
+    num_words, Contract, Interpreter, InterpreterResult, PrivateMemory, SharedMemory, Stack,
+    EMPTY_SHARED_MEMORY, STACK_LIMIT,
 };
 pub use interpreter_action::{
     CallInputs, CallOutcome, CallScheme, CallValue, CreateInputs, CreateOutcome, EOFCreateInputs,
