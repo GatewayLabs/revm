@@ -55,10 +55,11 @@ fn verify_garbled_value(
     expected: Option<u64>,
     name: &str,
 ) -> anyhow::Result<()> {
-    println!("\nVerifying {}:", name);
+    println!("\nVerifying {:?}, {:?}:", name, expected.map(U256::from));
     match interpreter.stack().peek(index) {
         Ok(value) => match value {
             StackValueData::Private(gate_indices) => {
+                println!("Private value ({:?})", name);
                 let output_indices = interpreter.stack.pop().unwrap();
                 let private_ref = output_indices.evaluate_with_interpreter(&interpreter);
 
@@ -85,6 +86,18 @@ fn verify_garbled_value(
                     assert_eq!(
                         computed_result.as_limbs()[0],
                         expected,
+                        "{} result does not match expected value",
+                        name
+                    );
+                }
+                Ok(())
+            },
+            StackValueData::Public(value) => {
+                println!("Public value ({:?})", name);
+                if let Some(expected) = expected {
+                    assert_eq!(
+                        value,
+                        U256::from(expected),
                         "{} result does not match expected value",
                         name
                     );
