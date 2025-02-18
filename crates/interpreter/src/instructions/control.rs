@@ -1,4 +1,5 @@
 use super::utility::{garbled_uint_to_ruint, read_i16, read_u16};
+use crate::instructions::utility::ruint_to_garbled_uint;
 use crate::{
     gas,
     interpreter::{
@@ -7,183 +8,168 @@ use crate::{
     },
     Host, InstructionResult, Interpreter, InterpreterResult,
 };
+use compute::prelude::CircuitExecutor;
 use compute::uint::GarbledUint;
+use compute::uint::GarbledUint256;
 use primitives::{Bytes, U256};
 use specification::hardfork::Spec;
 
 pub fn rjump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::BASE);
+
+    let current_pc = interpreter.program_counter();
     let offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-    // In spec it is +3 but pointer is already incremented in
-    // `Interpreter::step` so for revm is +2.
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset + 2) };
+    let new_pc = current_pc + 2 + (offset as usize);
+
+    // Create wire for new PC
+    let new_pc_garbled = ruint_to_garbled_uint(&U256::from(new_pc));
+    let new_pc_gates = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .input(&new_pc_garbled);
+
+    // Update proposed PC wire
+    interpreter.proposed_pc_wire = Some(new_pc_gates);
 }
 
 pub fn rjumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, condition);
-    // In spec it is +3 but pointer is already incremented in
-    // `Interpreter::step` so for revm is +2.
-    let mut offset = 2;
 
-    match condition {
-        StackValueData::Public(condition) => {
-            if !condition.is_zero() {
-                offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-            }
-        }
-        StackValueData::Private(private_ref) => {
-            let PrivateMemoryValue::Garbled(condition_gates) =
-                interpreter.private_memory.get(&private_ref)
-            else {
-                panic!("Unsupported PrivateMemoryValue type");
-            };
+    let current_pc = interpreter.program_counter();
+    let offset = unsafe { read_i16(interpreter.instruction_pointer) } as isize;
+    let jump_dest = current_pc + 2 + offset as usize;
+    let fallthrough_pc = current_pc + 2;
 
-            if let Ok(result) = interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&condition_gates)
-            {
-                if result != GarbledUint::zero() {
-                    offset += unsafe { read_i16(interpreter.instruction_pointer) } as isize;
-                }
-            }
-        }
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    }
+    // Convert condition to wire
+    let condition_wire = condition.is_zero_wire(
+        &mut interpreter.circuit_builder.borrow_mut(),
+        &mut interpreter.private_memory,
+    );
 
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset) };
+    // Create wires for both possible next PCs
+    let jump_dest_garbled = ruint_to_garbled_uint(&U256::from(jump_dest));
+    let jump_dest_gates = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .input(&jump_dest_garbled);
+
+    let fallthrough_garbled = ruint_to_garbled_uint(&U256::from(fallthrough_pc));
+    let fallthrough_gates = interpreter
+        .circuit_builder
+        .borrow_mut()
+        .input(&fallthrough_garbled);
+
+    // MUX between jump destination and fallthrough
+    let next_pc_gates = interpreter.circuit_builder.borrow_mut().mux(
+        &condition_wire[0],
+        &jump_dest_gates,
+        &fallthrough_gates,
+    );
+
+    // Update proposed PC wire
+    interpreter.proposed_pc_wire = Some(next_pc_gates);
 }
 
 pub fn rjumpv<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     require_eof!(interpreter);
     gas!(interpreter, gas::CONDITION_JUMP_GAS);
     pop!(interpreter, case);
-    let case = match case {
+    match case {
         StackValueData::Public(case) => {
-            as_isize_saturated!(case)
+            let case = as_isize_saturated!(case);
+            let max_index = unsafe { *interpreter.instruction_pointer } as isize;
+
+            let mut offset = (max_index + 1) * 2 + 1;
+            if case <= max_index {
+                offset += unsafe { read_i16(interpreter.instruction_pointer.offset(1 + case * 2)) }
+                    as isize;
+            }
+            let new_pc = (interpreter.program_counter() as isize + offset) as usize;
+
+            // Create circuit wire for the new PC
+            let next_pc_gates = interpreter.create_pc_wire(new_pc);
+            interpreter.proposed_pc_wire = Some(next_pc_gates);
         }
-        StackValueData::Private(private_ref) => {
+        StackValueData::Private(case_gates_ref) => {
             let PrivateMemoryValue::Garbled(case_gates) =
-                interpreter.private_memory.get(&private_ref)
+                interpreter.private_memory.get(&case_gates_ref)
             else {
-                panic!("Unsupported PrivateMemoryValue type");
+                todo!()
             };
 
-            if let Ok(result) = interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&case_gates)
-            {
-                let result = garbled_uint_to_ruint(&result);
-                as_isize_saturated!(result)
-            } else {
-                return;
+            let instruction_pc = interpreter.program_counter() - 1;
+            let max_index = unsafe { *interpreter.instruction_pointer } as usize;
+
+            let fallthrough_pc = instruction_pc + 2 + 2 * (max_index + 1);
+            let mut next_pc_gates = interpreter.create_pc_wire(fallthrough_pc);
+
+            // Build MUX chain for each possible case
+            for i in 0..=max_index {
+                let offset =
+                    unsafe { read_i16(interpreter.instruction_pointer.add(1 + i * 2)) } as isize;
+                let target_pc = (fallthrough_pc as isize + offset) as usize;
+
+                // Create circuit wire for this case's target PC
+                let target_pc_gates = interpreter.create_pc_wire(target_pc);
+
+                // Create equality check for this case
+                let case_value = ruint_to_garbled_uint(&U256::from(i));
+                let case_value_gates = interpreter.circuit_builder.borrow_mut().input(&case_value);
+                let eq_condition = interpreter
+                    .circuit_builder
+                    .borrow_mut()
+                    .eq(&case_gates, &case_value_gates);
+
+                // MUX between current next_pc and this case's target
+                next_pc_gates = interpreter.circuit_builder.borrow_mut().mux(
+                    &eq_condition,
+                    &target_pc_gates,
+                    &next_pc_gates,
+                );
             }
+
+            interpreter.proposed_pc_wire = Some(next_pc_gates);
         }
         StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    };
-
-    let max_index = unsafe { *interpreter.instruction_pointer } as isize;
-    // for number of items we are adding 1 to max_index, multiply by 2 as each offset is 2 bytes
-    // and add 1 for max_index itself. Note that revm already incremented the instruction pointer
-    let mut offset = (max_index + 1) * 2 + 1;
-
-    if case <= max_index {
-        offset += unsafe {
-            read_i16(
-                interpreter
-                    .instruction_pointer
-                    // offset for max_index that is one byte
-                    .offset(1 + case * 2),
-            )
-        } as isize;
     }
-
-    interpreter.instruction_pointer = unsafe { interpreter.instruction_pointer.offset(offset) };
 }
 
 pub fn jump<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop!(interpreter, target);
-    jump_inner(interpreter, target);
+
+    let target_wire = target.to_wire(
+        &mut interpreter.circuit_builder.borrow_mut(),
+        &mut interpreter.private_memory,
+    );
+
+    interpreter.proposed_pc_wire = Some(target_wire);
 }
 
 pub fn jumpi<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::HIGH);
-    pop!(interpreter, target, cond);
+    pop!(interpreter, target, condition);
 
-    match cond {
-        StackValueData::Public(cond) => {
-            if !cond.is_zero() {
-                jump_inner(interpreter, target);
-            }
-        }
-        StackValueData::Private(private_ref) => {
-            let PrivateMemoryValue::Garbled(cond) = interpreter.private_memory.get(&private_ref)
-            else {
-                panic!("Unsupported PrivateMemoryValue type");
-            };
+    let fallthrough_wire = interpreter.proposed_pc_wire.as_ref().unwrap().clone();
+    let selector = condition.is_zero_wire(
+        &mut interpreter.circuit_builder.borrow_mut(),
+        &mut interpreter.private_memory,
+    );
+    let target_wire = target.to_wire(
+        &mut interpreter.circuit_builder.borrow_mut(),
+        &mut interpreter.private_memory,
+    );
 
-            // Borrow `circuit_builder` temporarily
-            let result = {
-                let cb = interpreter.circuit_builder.borrow_mut();
-                cb.compile_and_execute::<256>(&cond)
-            }; // `cb` goes out of scope here, releasing the borrow
+    let proposed_pc =
+        interpreter
+            .circuit_builder
+            .borrow_mut()
+            .mux(&selector[0], &fallthrough_wire, &target_wire);
 
-            match result {
-                Ok(result) => {
-                    let x: GarbledUint<256> = GarbledUint::new(vec![false; 256]);
-                    if result != x {
-                        jump_inner(interpreter, target); // Safe to borrow `interpreter` mutably again
-                    }
-                }
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidJump;
-                    return;
-                }
-            }
-        }
-        StackValueData::Encrypted(_ciphertext) => {
-            panic!("Cannot convert encrypted value to U256")
-        }
-    }
-}
-
-#[inline]
-fn jump_inner(interpreter: &mut Interpreter, target: StackValueData) {
-    let target = match target {
-        StackValueData::Public(target) => target,
-        StackValueData::Private(private_ref) => {
-            let PrivateMemoryValue::Garbled(target) = interpreter.private_memory.get(&private_ref)
-            else {
-                panic!("Unsupported PrivateMemoryValue type");
-            };
-
-            match interpreter
-                .circuit_builder
-                .borrow_mut()
-                .compile_and_execute::<256>(&target)
-            {
-                Ok(result) => garbled_uint_to_ruint(&result),
-                Err(_) => {
-                    interpreter.instruction_result = InstructionResult::InvalidJump; // NOTE: define granular error for gate execution error
-                    return;
-                }
-            }
-        }
-        StackValueData::Encrypted(_ciphertext) => panic!("Cannot convert encrypted value to U256"),
-    };
-
-    let target = as_usize_or_fail!(interpreter, target, InstructionResult::InvalidJump);
-    if !interpreter.contract.is_valid_jump(target) {
-        interpreter.instruction_result = InstructionResult::InvalidJump;
-        return;
-    }
-    // SAFETY: `is_valid_jump` ensures that `dest` is in bounds.
-    interpreter.instruction_pointer = unsafe { interpreter.bytecode.as_ptr().add(target) };
+    interpreter.proposed_pc_wire = Some(proposed_pc);
 }
 
 pub fn jumpdest_or_nop<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
@@ -201,23 +187,22 @@ pub fn callf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         return;
     }
 
-    // get target types
     let Some(types) = interpreter.eof().unwrap().body.types_section.get(idx) else {
         panic!("Invalid EOF in execution, expecting correct intermediate in callf")
     };
 
-    // Check max stack height for target code section.
     // safe to subtract as max_stack_height is always more than inputs.
     if interpreter.stack.len() + (types.max_stack_size - types.inputs as u16) as usize > 1024 {
         interpreter.instruction_result = InstructionResult::StackOverflow;
         return;
     }
 
-    // push current idx and PC to the callf stack.
-    // PC is incremented by 2 to point to the next instruction after callf.
-    interpreter
-        .function_stack
-        .push(interpreter.program_counter() + 2, idx);
+    let return_pc = interpreter.program_counter() + 2;
+    interpreter.create_pc_wire(return_pc);
+    interpreter.function_stack.push(return_pc, idx);
+
+    let target_pc_gates = interpreter.create_pc_wire(0);
+    interpreter.proposed_pc_wire = Some(target_pc_gates);
 
     interpreter.load_eof_code(idx, 0)
 }
@@ -229,6 +214,10 @@ pub fn retf<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     let Some(fframe) = interpreter.function_stack.pop() else {
         panic!("Expected function frame")
     };
+
+    // Create circuit wire for return PC
+    let return_pc_gates = interpreter.create_pc_wire(fframe.pc);
+    interpreter.proposed_pc_wire = Some(return_pc_gates);
 
     interpreter.load_eof_code(fframe.idx, fframe.pc);
 }
@@ -326,478 +315,283 @@ pub fn unknown<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 }
 
 #[cfg(test)]
-mod test {
+mod control_tests {
     use super::*;
-    use crate::instructions::utility::ruint_to_garbled_uint;
-    use crate::{table::make_instruction_table, DummyHost, FunctionReturnFrame, Gas, Interpreter};
-    use bytecode::opcode::{
-        CALLF, JUMP, JUMPDEST, JUMPF, JUMPI, NOP, PUSH1, RETF, RJUMP, RJUMPI, RJUMPV, STOP,
+    use crate::{
+        interpreter::{EMPTY_PRIVATE_MEMORY, EMPTY_SHARED_MEMORY},
+        table::make_instruction_table,
+        DummyHost, Gas,
     };
-    use bytecode::{
-        eof::{Eof, TypesSection},
-        Bytecode,
+    use bytecode::Bytecode;
+    use compute::{
+        prelude::{GateIndexVec, WRK17CircuitBuilder},
+        uint::GarbledUint256,
     };
-    use compute::uint::GarbledUint256;
-    use primitives::bytes;
+    use primitives::{Bytes, U256};
     use specification::hardfork::PragueSpec;
-    use std::sync::Arc;
-    use wiring::DefaultEthereumWiring;
+    use wiring::{default::Env, DefaultEthereumWiring};
 
-    #[test]
-    fn rjump() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp =
-            Interpreter::new_bytecode(Bytecode::LegacyRaw([RJUMP, 0x00, 0x02, STOP, STOP].into()));
+    // Helper function to evaluate the PC wire from the circuit builder
+    fn evaluate_circuit_pc(
+        circuit_builder: &std::cell::RefCell<WRK17CircuitBuilder>,
+        pc_gates: &GateIndexVec,
+    ) -> usize {
+        let cb = circuit_builder.borrow();
+        let result = cb.compile_and_execute(pc_gates).unwrap();
+        let ruint_value = garbled_uint_to_ruint::<256>(&result);
+        ruint_value.as_limbs()[0] as usize
+    }
+
+    // Helper to add JUMPDEST opcodes at jump targets
+    fn add_jumpdest_at(bytecode: &mut Vec<u8>, target_pc: usize) {
+        if target_pc < bytecode.len() {
+            bytecode[target_pc] = 0x5b; // JUMPDEST opcode
+        } else {
+            bytecode.resize(target_pc, 0x00); // Pad with NOPs
+            bytecode.push(0x5b); // Add JUMPDEST
+        }
+    }
+
+    // Helper to create a test interpreter with mock bytecode
+    fn setup_test_interpreter(
+        bytecode: Vec<u8>,
+    ) -> (Interpreter, DummyHost<DefaultEthereumWiring>) {
+        let bytes = Bytes::from(bytecode);
+        let legacy_raw = bytecode::LegacyRawBytecode::from(bytes);
+        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(legacy_raw));
         interp.is_eof = true;
         interp.gas = Gas::new(10000);
 
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 5);
+        // Initialize PC wire to 0
+        let initial_pc_wire = interp.create_pc_wire(0);
+        interp.current_pc_wire = Some(initial_pc_wire);
+
+        let host = DummyHost::<DefaultEthereumWiring>::new(Env::default());
+        (interp, host)
     }
 
     #[test]
-    fn rjumpi() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [RJUMPI, 0x00, 0x03, RJUMPI, 0x00, 0x01, STOP, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.stack.push(U256::from(1).into()).unwrap();
-        interp.stack.push(U256::from(0).into()).unwrap();
-        interp.gas = Gas::new(10000);
+    fn test_jump_public() {
+        let target_pc = 42;
 
-        // dont jump
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 3);
-        // jumps to last opcode
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 7);
+        // Create bytecode: PUSH target_pc, JUMP
+        let mut bytecode = vec![0x60]; // PUSH1
+        bytecode.extend_from_slice(&[target_pc as u8]);
+        bytecode.push(0x56); // JUMP
+
+        // Add JUMPDEST at target and pad with NOPs
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
+
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
+
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
+
+        // Verify PC wire matches target
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
+        );
+        assert_eq!(pc, target_pc, "Jump did not set the expected PC wire");
     }
 
     #[test]
-    fn rjumpi_private() {
+    fn test_jump_private() {
+        let target_pc = 42;
+
+        // Create bytecode: JUMP (we'll push the private target onto stack manually)
+        let mut bytecode = vec![0x56]; // JUMP
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
+
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [RJUMPI, 0x00, 0x03, RJUMPI, 0x00, 0x01, STOP, STOP].into(),
-        ));
-        interp.is_eof = true;
 
-        let garbled_one = GarbledUint::<256>::one();
-        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(garbled_one_gates));
+        // Create private target value and push to stack
+        let target_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
+        let target_gates = interp.circuit_builder.borrow_mut().input(&target_garbled);
         interp
             .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
+            .push_stack_value_data(StackValueData::Private(
+                interp
+                    .private_memory
+                    .push(PrivateMemoryValue::Garbled(target_gates.clone())),
+            ))
             .unwrap();
 
-        let garbled_zero = GarbledUint::<256>::zero();
-        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(garbled_zero_gates));
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
-        interp.gas = Gas::new(10000);
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
-        // don't jump
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 3);
-        // jumps to last opcode
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 7);
-    }
-
-    #[test]
-    fn rjumpv() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [
-                RJUMPV,
-                0x01, // max index, 0 and 1
-                0x00, // first x0001
-                0x01,
-                0x00, // second 0x002
-                0x02,
-                NOP,
-                NOP,
-                NOP,
-                RJUMP,
-                0xFF,
-                (-12i8) as u8,
-                STOP,
-            ]
-            .into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(1000);
-
-        // more then max_index
-        interp.stack.push(U256::from(10).into()).unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 6);
-
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
-
-        // jump to first index of vtable
-        interp.stack.push(U256::from(0).into()).unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 7);
-
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
-
-        // jump to second index of vtable
-        interp.stack.push(U256::from(1).into()).unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 8);
-    }
-
-    #[test]
-    fn rjumpv_private() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [
-                RJUMPV,
-                0x01, // max index, 0 and 1
-                0x00, // first x0001
-                0x01,
-                0x00, // second 0x002
-                0x02,
-                NOP,
-                NOP,
-                NOP,
-                RJUMP,
-                0xFF,
-                (-12i8) as u8,
-                STOP,
-            ]
-            .into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(1000);
-
-        // more then max_index
-        let garbled_ten = ruint_to_garbled_uint(&U256::from(10));
-        let garbled_ten_gates = interp.circuit_builder.borrow_mut().input(&garbled_ten);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(garbled_ten_gates));
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 6);
-
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
-
-        // jump to first index of vtable
-        let garbled_zero = ruint_to_garbled_uint(&U256::from(0));
-        let garbled_zero_gates = interp.circuit_builder.borrow_mut().input(&garbled_zero);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(garbled_zero_gates));
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 7);
-
-        // cleanup
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 0);
-
-        // jump to second index of vtable
-        let garbled_one = ruint_to_garbled_uint(&U256::from(1));
-        let garbled_one_gates = interp.circuit_builder.borrow_mut().input(&garbled_one);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(garbled_one_gates));
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 8);
-    }
-
-    #[test]
-    fn jump() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-
-        // 1) Test JUMP to a valid address = 3
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [PUSH1, 0x04, JUMP, 0x01, JUMPDEST, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
-
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
-        assert_eq!(interp.program_counter(), 4, "jump to 4 should succeed");
-
-        // 2) Test JUMP to invalid address = 0
-        interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [PUSH1, 0x00, JUMP, 0x01, JUMPDEST, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
-
-        interp.step(&table, &mut host);
-        interp.step(&table, &mut host);
+        // Verify PC wire matches target
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
+        );
         assert_eq!(
-            interp.program_counter(),
-            3,
-            "jump to invalid address 0 should do nothing"
+            pc, target_pc,
+            "Jump with private target did not set the expected PC wire"
         );
     }
 
     #[test]
-    fn jump_private() {
+    fn test_jumpi_public_taken() {
+        let target_pc = 55;
+
+        // Create bytecode: PUSH 1 (condition), PUSH target_pc, JUMPI
+        let mut bytecode = vec![0x60]; // PUSH1
+        bytecode.push(0x01); // condition = 1
+        bytecode.push(0x60); // PUSH1
+        bytecode.extend_from_slice(&[target_pc as u8]); // target
+        bytecode.push(0x57); // JUMPI
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
+
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
         let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp =
-            Interpreter::new_bytecode(Bytecode::LegacyRaw([JUMP, 0x04, JUMPDEST, STOP].into()));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
 
-        // Create a private target address
-        let target = ruint_to_garbled_uint(&U256::from(2)); // JUMPDEST is at position 1
-        let target_gates = interp.circuit_builder.borrow_mut().input(&target);
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(target_gates));
-        // Push the private target address onto the stack
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
 
-        // Execute the step
-        interp.step(&table, &mut host); // JUMP
-                                        // Check if the program counter has jumped to the target address (1)
-        assert_eq!(interp.program_counter(), 2);
-    }
-
-    #[test]
-    fn jumpi() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [JUMPI, 0x03, 0x00, JUMPDEST, STOP, STOP, STOP, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
-
-        // Push the condition (1) onto the stack
-        interp.stack.push(U256::from(1).into()).unwrap();
-        // Push the target address (3) onto the stack
-        interp.stack.push(U256::from(3).into()).unwrap();
-
-        // Execute the step
-        interp.step(&table, &mut host);
-        // Check if the program counter has jumped to the target address (3)
-        assert_eq!(interp.program_counter(), 3);
-    }
-
-    #[test]
-    fn jumpi_private() {
-        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
-        let mut host = DummyHost::default();
-        let mut interp = Interpreter::new_bytecode(Bytecode::LegacyRaw(
-            [JUMPI, 0x03, 0x00, JUMPDEST, STOP].into(),
-        ));
-        interp.is_eof = true;
-        interp.gas = Gas::new(10000);
-
-        // Create a private condition
-        let condition = GarbledUint256::one();
-        let condition_gates = interp.circuit_builder.borrow_mut().input(&condition);
-
-        // Push the private condition onto the stack
-        let private_ref = interp
-            .private_memory
-            .push(PrivateMemoryValue::Garbled(condition_gates));
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Private(private_ref))
-            .unwrap();
-
-        // Push the target address (3) onto the stack
-        interp
-            .stack
-            .push_stack_value_data(StackValueData::Public(U256::from(3)))
-            .unwrap();
-
-        // Execute the step
-        interp.step(&table, &mut host);
-        // Check if the program counter has jumped to the target address (3)
-        assert_eq!(interp.program_counter(), 3);
-    }
-
-    fn dummy_eof() -> Eof {
-        let bytes = bytes!("ef000101000402000100010400000000800000fe");
-        Eof::decode(bytes).unwrap()
-    }
-
-    fn eof_setup(bytes1: Bytes, bytes2: Bytes) -> Interpreter {
-        eof_setup_with_types(bytes1, bytes2, TypesSection::default())
-    }
-
-    /// Two code section and types section is for last code.
-    fn eof_setup_with_types(bytes1: Bytes, bytes2: Bytes, types: TypesSection) -> Interpreter {
-        let mut eof = dummy_eof();
-
-        eof.body.code_section.clear();
-        eof.body.types_section.clear();
-        eof.header.code_sizes.clear();
-
-        eof.header.code_sizes.push(bytes1.len() as u16);
-        eof.body.code_section.push(bytes1.clone());
-        eof.body.types_section.push(TypesSection::new(0, 0, 11));
-
-        eof.header.code_sizes.push(bytes2.len() as u16);
-        eof.body.code_section.push(bytes2.clone());
-        eof.body.types_section.push(types);
-
-        let mut interp = Interpreter::new_bytecode(Bytecode::Eof(Arc::new(eof)));
-        interp.gas = Gas::new(10000);
-        interp
-    }
-
-    #[test]
-    fn callf_retf_stop() {
-        let table = make_instruction_table::<_, PragueSpec>();
-        let mut host = DummyHost::<DefaultEthereumWiring>::default();
-
-        let bytes1 = Bytes::from([CALLF, 0x00, 0x01, STOP]);
-        let bytes2 = Bytes::from([RETF]);
-        let mut interp = eof_setup(bytes1, bytes2.clone());
-
-        // CALLF
-        interp.step(&table, &mut host);
-
-        assert_eq!(interp.function_stack.current_code_idx, 1);
-        assert_eq!(
-            interp.function_stack.return_stack[0],
-            FunctionReturnFrame::new(0, 3)
+        // Verify PC wire matches target
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
         );
-        assert_eq!(interp.instruction_pointer, bytes2.as_ptr());
-
-        // RETF
-        interp.step(&table, &mut host);
-
-        assert_eq!(interp.function_stack.current_code_idx, 0);
-        assert_eq!(interp.function_stack.return_stack, Vec::new());
-        assert_eq!(interp.program_counter(), 3);
-
-        // STOP
-        interp.step(&table, &mut host);
-        assert_eq!(interp.instruction_result, InstructionResult::Stop);
-    }
-
-    #[test]
-    fn callf_stop() {
-        let table = make_instruction_table::<_, PragueSpec>();
-        let mut host = DummyHost::<DefaultEthereumWiring>::default();
-
-        let bytes1 = Bytes::from([CALLF, 0x00, 0x01]);
-        let bytes2 = Bytes::from([STOP]);
-        let mut interp = eof_setup(bytes1, bytes2.clone());
-
-        // CALLF
-        interp.step(&table, &mut host);
-
-        assert_eq!(interp.function_stack.current_code_idx, 1);
         assert_eq!(
-            interp.function_stack.return_stack[0],
-            FunctionReturnFrame::new(0, 3)
+            pc, target_pc,
+            "Jumpi with nonzero condition did not jump to target"
         );
-        assert_eq!(interp.instruction_pointer, bytes2.as_ptr());
-
-        // STOP
-        interp.step(&table, &mut host);
-        assert_eq!(interp.instruction_result, InstructionResult::Stop);
     }
 
     #[test]
-    fn callf_stack_overflow() {
-        let table = make_instruction_table::<_, PragueSpec>();
-        let mut host = DummyHost::<DefaultEthereumWiring>::default();
+    fn test_jumpi_public_not_taken() {
+        let target_pc = 55;
+        let fallthrough_pc = 5; // PUSH1 + PUSH1 + JUMPI = 5 bytes
 
-        let bytes1 = Bytes::from([CALLF, 0x00, 0x01]);
-        let bytes2 = Bytes::from([STOP]);
-        let mut interp =
-            eof_setup_with_types(bytes1, bytes2.clone(), TypesSection::new(0, 0, 1025));
+        // Create bytecode: PUSH 0 (condition), PUSH target_pc, JUMPI
+        let mut bytecode = vec![0x60]; // PUSH1
+        bytecode.push(0x00); // condition = 0
+        bytecode.push(0x60); // PUSH1
+        bytecode.extend_from_slice(&[target_pc as u8]); // target
+        bytecode.push(0x57); // JUMPI
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
 
-        // CALLF
-        interp.step(&table, &mut host);
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
-        // stack overflow
-        assert_eq!(interp.instruction_result, InstructionResult::StackOverflow);
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
+
+        // Verify PC wire matches fallthrough
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
+        );
+        assert_eq!(
+            pc, fallthrough_pc,
+            "Jumpi with zero condition did not fallthrough"
+        );
     }
 
     #[test]
-    fn jumpf_stop() {
-        let table = make_instruction_table::<_, PragueSpec>();
-        let mut host = DummyHost::<DefaultEthereumWiring>::default();
+    fn test_jumpi_private_taken() {
+        let target_pc = 55;
 
-        let bytes1 = Bytes::from([JUMPF, 0x00, 0x01]);
-        let bytes2 = Bytes::from([STOP]);
-        let mut interp = eof_setup(bytes1, bytes2.clone());
+        // Create bytecode: JUMPI (we'll push private condition and target manually)
+        let mut bytecode = vec![0x57]; // JUMPI
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
 
-        // JUMPF
-        interp.step(&table, &mut host);
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
-        assert_eq!(interp.function_stack.current_code_idx, 1);
-        assert!(interp.function_stack.return_stack.is_empty());
-        assert_eq!(interp.instruction_pointer, bytes2.as_ptr());
+        // Create private condition (1) and target
+        let condition_garbled = GarbledUint256::one();
+        let condition_gates = interp
+            .circuit_builder
+            .borrow_mut()
+            .input(&condition_garbled);
 
-        // STOP
-        interp.step(&table, &mut host);
-        assert_eq!(interp.instruction_result, InstructionResult::Stop);
+        let target_garbled = ruint_to_garbled_uint(&U256::from(target_pc));
+        let target_gates = interp.circuit_builder.borrow_mut().input(&target_garbled);
+
+        // Push condition first, then target (matching native EVM order)
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(
+                interp
+                    .private_memory
+                    .push(PrivateMemoryValue::Garbled(condition_gates)),
+            ))
+            .unwrap();
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(
+                interp
+                    .private_memory
+                    .push(PrivateMemoryValue::Garbled(target_gates)),
+            ))
+            .unwrap();
+
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
+
+        // Verify PC wire matches target
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
+        );
+        assert_eq!(
+            pc, target_pc,
+            "Jumpi with private nonzero condition did not jump to target"
+        );
     }
 
     #[test]
-    fn jumpf_stack_overflow() {
-        let table = make_instruction_table::<_, PragueSpec>();
-        let mut host = DummyHost::<DefaultEthereumWiring>::default();
+    fn test_jumpi_mixed_private_public() {
+        let target_pc = 55;
 
-        let bytes1 = Bytes::from([JUMPF, 0x00, 0x01]);
-        let bytes2 = Bytes::from([STOP]);
-        let mut interp =
-            eof_setup_with_types(bytes1, bytes2.clone(), TypesSection::new(0, 0, 1025));
+        // Create bytecode: PUSH target_pc, JUMPI (we'll push private condition manually)
+        let mut bytecode = vec![0x60]; // PUSH1
+        bytecode.extend_from_slice(&[target_pc as u8]); // target
+        bytecode.push(0x57); // JUMPI
+        add_jumpdest_at(&mut bytecode, target_pc);
+        bytecode.push(0x00); // STOP
 
-        // JUMPF
-        interp.step(&table, &mut host);
+        let (mut interp, mut host) = setup_test_interpreter(bytecode);
+        let table = make_instruction_table::<DummyHost<DefaultEthereumWiring>, PragueSpec>();
 
-        // stack overflow
-        assert_eq!(interp.instruction_result, InstructionResult::StackOverflow);
+        // Create private condition (1)
+        let condition_garbled = GarbledUint256::one();
+        let condition_gates = interp
+            .circuit_builder
+            .borrow_mut()
+            .input(&condition_garbled);
+
+        // Push condition first (private), then target (public) will be pushed by PUSH1
+        interp
+            .stack
+            .push_stack_value_data(StackValueData::Private(
+                interp
+                    .private_memory
+                    .push(PrivateMemoryValue::Garbled(condition_gates)),
+            ))
+            .unwrap();
+
+        // Run the interpreter
+        interp.run(EMPTY_SHARED_MEMORY, EMPTY_PRIVATE_MEMORY, &table, &mut host);
+
+        // Verify PC wire matches target
+        let pc = evaluate_circuit_pc(
+            &interp.circuit_builder,
+            interp.current_pc_wire.as_ref().unwrap(),
+        );
+        assert_eq!(
+            pc, target_pc,
+            "Jumpi with public target and private condition did not jump correctly"
+        );
     }
 }

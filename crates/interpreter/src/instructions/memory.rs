@@ -12,9 +12,9 @@ use specification::hardfork::Spec;
 
 pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::VERYLOW);
-    pop_top!(interpreter, top_ptr);
+    pop_top!(interpreter, offset_ptr);
 
-    let top: U256 = match top_ptr {
+    let offset_val: U256 = match offset_ptr {
         StackValueData::Public(top) => *top,
         StackValueData::Private(top_ptr) => {
             let val_private = interpreter.private_memory.get(
@@ -34,12 +34,12 @@ pub fn mload<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
         _ => panic!("Unsupported StackValueData type"),
     };
 
-    let offset = as_usize_or_fail!(interpreter, top);
+    let offset = as_usize_or_fail!(interpreter, offset_val);
     resize_memory!(interpreter, offset, 32);
 
     let from_memory: U256 = interpreter.shared_memory.get_u256(offset).into();
 
-    *top_ptr = from_memory.into();
+    *offset_ptr = from_memory.into();
 }
 
 pub fn mstore<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {

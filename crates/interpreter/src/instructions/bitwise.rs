@@ -72,7 +72,7 @@ pub fn iszero<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
             cb.eq(&garbled_gates, &zero_gates)
         }
         StackValueData::Private(private_ref) => {
-            let PrivateMemoryValue::Garbled(garbled) = interpreter.private_memory.get(private_ref)
+            let PrivateMemoryValue::Garbled(garbled) = interpreter.private_memory.get(&private_ref)
             else {
                 panic!("iszero: fetched unsupported PrivateMemoryValue type");
             };

@@ -5,18 +5,21 @@ pub mod serde;
 pub(crate) mod shared_memory;
 mod stack;
 
+use crate::instructions::utility::ruint_to_garbled_uint;
 use bytecode::opcode::OpCode;
-use compute::prelude::WRK17CircuitBuilder;
+use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 pub use contract::Contract;
 pub use private_memory::{PrivateMemory, PrivateMemoryValue, EMPTY_PRIVATE_MEMORY};
 pub use shared_memory::{num_words, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, StackValueData, STACK_LIMIT};
 
+use super::instructions::utility::garbled_uint_to_ruint;
 use crate::{
     gas, push, push_b256, return_ok, return_revert, CallOutcome, CreateOutcome, FunctionStack, Gas,
     Host, InstructionResult, InterpreterAction,
 };
 use bytecode::{Bytecode, Eof};
+use compute::prelude::CircuitExecutor;
 use core::cell::RefCell;
 use core::cmp::min;
 use encryption::Keypair;
@@ -24,6 +27,8 @@ use primitives::{Bytes, U256};
 use std::borrow::ToOwned;
 use std::rc::Rc;
 use std::sync::Arc;
+
+pub const MAX_STEPS: usize = 10000;
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -70,6 +75,10 @@ pub struct Interpreter {
     pub next_action: InterpreterAction,
     pub circuit_builder: Rc<RefCell<WRK17CircuitBuilder>>,
     pub encryption_keypair: Option<Keypair>,
+    /// Current program counter wire in the circuit
+    pub current_pc_wire: Option<GateIndexVec>,
+    /// Proposed next PC wire for control flow changes
+    pub proposed_pc_wire: Option<GateIndexVec>,
 }
 
 impl<'cb> Default for Interpreter {
@@ -115,6 +124,8 @@ impl Interpreter {
             circuit_builder,
             private_memory: EMPTY_PRIVATE_MEMORY,
             encryption_keypair: None,
+            current_pc_wire: None,
+            proposed_pc_wire: None,
         }
     }
 
@@ -423,24 +434,125 @@ impl Interpreter {
         self.next_action = InterpreterAction::None;
         self.shared_memory = shared_memory;
         self.private_memory = private_memory;
-        // main loop
-        while self.instruction_result == InstructionResult::Continue {
-            self.step(instruction_table, host);
+
+        let mut public_pc: usize = 0;
+        let mut current_pc_wire = self.create_pc_wire(public_pc);
+        self.current_pc_wire = Some(current_pc_wire.clone());
+
+        // Unroll the circuit up to MAX_STEPS.
+        // IMPORTANT: When we encounter a jump-style opcode (JUMP or JUMPI),
+        // we update the PC via the opcode’s subcircuit and break out immediately,
+        // so that we don’t add an extra increment in the run loop.
+        for _ in 0..MAX_STEPS {
+            // If we've reached or passed the end of the bytecode, treat it as STOP.
+            let opcode = if public_pc < self.bytecode.len() {
+                self.bytecode[public_pc]
+            } else {
+                0x00 // STOP opcode.
+            };
+
+            // Create a constant wire for the current public PC.
+            let pc_const = self.create_pc_wire(public_pc);
+            let is_this_step = {
+                let mut cb = self.circuit_builder.borrow_mut();
+                cb.eq(&current_pc_wire, &pc_const)
+            };
+            let is_this_step = GateIndexVec::from(vec![is_this_step]);
+
+            if opcode >= 0x60 && opcode <= 0x7f {
+                // Handle PUSH opcodes: increment by (1 + number of push bytes).
+                let n = (opcode - 0x5f) as usize;
+                let next_pc = public_pc + 1 + n;
+                let next_pc_wire = self.create_pc_wire(next_pc);
+                self.proposed_pc_wire = Some(next_pc_wire);
+
+                // For PUSH, also push the immediate value onto the stack.
+                let mut bytes = [0u8; 32];
+                if public_pc + 1 + n <= self.bytecode.len() {
+                    let data_slice = &self.bytecode[public_pc + 1..public_pc + 1 + n];
+                    bytes[32 - n..].copy_from_slice(data_slice);
+                }
+                let push_value = U256::from_be_bytes(bytes);
+                self.stack.push_stack_value_data(push_value.into()).unwrap();
+
+                public_pc = next_pc;
+            } else {
+                // For all other opcodes, assume the default PC advance is 1.
+                let next_pc = public_pc + 1;
+                let next_pc_wire = self.create_pc_wire(next_pc);
+                self.proposed_pc_wire = Some(next_pc_wire);
+
+                (instruction_table[opcode as usize])(self, host);
+
+                // If the opcode is a jump-style opcode, break out of the unrolling loop
+                // immediately after updating the PC wire so that no extra increment is applied.
+                if opcode == 0x56 || opcode == 0x57 {
+                    public_pc = next_pc;
+                    let new_pc_wire = {
+                        let mut cb = self.circuit_builder.borrow_mut();
+                        cb.mux(
+                            &is_this_step[0],
+                            self.proposed_pc_wire.as_ref().unwrap(),
+                            &current_pc_wire,
+                        )
+                    };
+                    current_pc_wire = new_pc_wire;
+                    self.current_pc_wire = Some(current_pc_wire.clone());
+                    break;
+                } else {
+                    public_pc = next_pc;
+                }
+            }
+
+            // Update the current PC wire using a mux that selects the new proposed PC when this step is active.
+            let new_pc_wire = {
+                let mut cb = self.circuit_builder.borrow_mut();
+                cb.mux(
+                    &is_this_step[0],
+                    self.proposed_pc_wire.as_ref().unwrap(),
+                    &current_pc_wire,
+                )
+            };
+            current_pc_wire = new_pc_wire;
+            self.current_pc_wire = Some(current_pc_wire.clone());
+
+            // If we hit STOP or went past the bytecode, break early.
+            if public_pc >= self.bytecode.len() || opcode == 0x00 {
+                break;
+            }
         }
 
-        // Return next action if it is some.
+        {
+            let cb = self.circuit_builder.borrow();
+            let circuit = cb.compile(&current_pc_wire);
+            let result = cb
+                .execute::<256>(&circuit)
+                .expect("Failed to execute circuit");
+            let final_pc = garbled_uint_to_ruint::<256>(&result).as_limbs()[0] as usize;
+            self.instruction_pointer = unsafe { self.bytecode.as_ptr().add(final_pc) };
+
+            if final_pc >= self.bytecode.len() {
+                self.instruction_result = InstructionResult::Stop;
+            }
+        }
+
         if self.next_action.is_some() {
             return core::mem::take(&mut self.next_action);
         }
-        // If not, return action without output as it is a halt.
+
         InterpreterAction::Return {
             result: InterpreterResult {
                 result: self.instruction_result,
-                // return empty bytecode
                 output: Bytes::new(),
                 gas: self.gas,
             },
         }
+    }
+
+    /// Creates a circuit wire for a PC value
+    pub(crate) fn create_pc_wire(&mut self, pc: usize) -> GateIndexVec {
+        let pc_garbled = ruint_to_garbled_uint(&U256::from(pc));
+        self.circuit_builder.borrow_mut().constant(&pc_garbled)
     }
 
     /// Resize the memory to the new size. Returns whether the gas was enough to resize the memory.

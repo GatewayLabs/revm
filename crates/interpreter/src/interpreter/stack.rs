@@ -1,5 +1,8 @@
-use crate::InstructionResult;
-use compute::prelude::WRK17CircuitBuilder;
+use crate::{instructions::utility::ruint_to_garbled_uint, InstructionResult};
+use compute::{
+    prelude::{CircuitExecutor, GateIndexVec, WRK17CircuitBuilder},
+    uint::GarbledUint,
+};
 use core::{fmt, ptr};
 use encryption::{
     elgamal::{Ciphertext, ElGamalEncryption, Keypair},
@@ -28,6 +31,90 @@ pub enum StackValueData {
 }
 
 impl StackValueData {
+    pub fn zero() -> Self {
+        StackValueData::Public(U256::ZERO)
+    }
+
+    /// Returns a wire representing whether this value is zero
+    pub fn is_zero_wire(
+        &self,
+        circuit_builder: &mut WRK17CircuitBuilder,
+        private_memory: &PrivateMemory,
+    ) -> GateIndexVec {
+        match self {
+            StackValueData::Public(value) => {
+                // For public values, create a constant wire
+                let zero = GarbledUint::<256>::zero();
+                let value_garbled = ruint_to_garbled_uint(value);
+                let value_gates = circuit_builder.constant(&value_garbled);
+                let zero_gates = circuit_builder.constant(&zero);
+                // Return a single-element vector containing the equality gate
+                GateIndexVec::from(vec![circuit_builder.eq(&value_gates, &zero_gates)])
+            }
+            StackValueData::Private(value_ref) => {
+                let PrivateMemoryValue::Garbled(value) = private_memory.get(value_ref) else {
+                    todo!()
+                };
+
+                // For private values, use the existing wire and compare with zero
+                let zero = GarbledUint::<256>::zero();
+                let zero_gates = circuit_builder.constant(&zero);
+                GateIndexVec::from(vec![circuit_builder.eq(&value, &zero_gates)])
+            }
+            StackValueData::Encrypted(_) => panic!("Cannot check if encrypted value is zero"),
+        }
+    }
+
+    /// DEPRECATED: Do not use in control flow - use is_zero_wire instead
+    pub fn is_zero(&self, _circuit_builder: &WRK17CircuitBuilder) -> bool {
+        match self {
+            StackValueData::Public(value) => value.is_zero(),
+            StackValueData::Private(_) => {
+                panic!("Cannot evaluate private value during execution - use is_zero_wire instead")
+            }
+            StackValueData::Encrypted(_) => false,
+        }
+    }
+
+    /// Returns the wire representation of this value, creating one if necessary
+    pub fn to_wire(
+        &self,
+        builder: &mut WRK17CircuitBuilder,
+        private_memory: &PrivateMemory,
+    ) -> GateIndexVec {
+        match self {
+            StackValueData::Public(value) => {
+                let garbled_uint = ruint_to_garbled_uint(value);
+                builder.constant(&garbled_uint)
+            }
+            StackValueData::Private(value_ref) => {
+                let PrivateMemoryValue::Garbled(gates) = private_memory.get(value_ref) else {
+                    panic!("Cannot convert private value to wire")
+                };
+                gates.clone()
+            }
+            StackValueData::Encrypted(_) => panic!("Cannot convert encrypted value to wire"),
+        }
+    }
+
+    /// Returns a new wire that is the result of a MUX between self and other based on condition
+    pub fn mux(
+        &self,
+        condition: &GateIndexVec,
+        other: &Self,
+        builder: &mut WRK17CircuitBuilder,
+        private_memory: &mut PrivateMemory,
+    ) -> Self {
+        let self_wire = self.to_wire(builder, private_memory);
+        let other_wire = other.to_wire(builder, private_memory);
+
+        StackValueData::Private(private_memory.push(PrivateMemoryValue::Garbled(builder.mux(
+            &condition[0],
+            &self_wire,
+            &other_wire,
+        ))))
+    }
+
     pub fn evaluate(&self, builder: &WRK17CircuitBuilder, private_memory: &PrivateMemory) -> U256 {
         match self {
             StackValueData::Public(val) => *val,

@@ -33,7 +33,7 @@ pub fn mul<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     push_private_memory!(interpreter, result, op2);
 }
 
-// TODO: Audit circuit subtractionst
+// TODO: Audit circuit subtraction
 pub fn sub<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2_ptr);
 
@@ -97,28 +97,32 @@ pub fn rem<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
 pub fn smod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::LOW);
     pop_top!(interpreter, op1, op2);
-    *op2 = i256_mod(op1.into(), op2.to_u256()).into()
+    let result = i256_mod(op1.into(), op2.to_u256());
+    *op2 = result.into();
 }
 
 //TODO: Implement circuit for signed addition
 pub fn addmod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop_top!(interpreter, op1, op2, op3);
-    *op3 = op1.to_u256().add_mod(op2.into(), op3.to_u256()).into()
+    let result = op1.to_u256().add_mod(op2.into(), op3.to_u256());
+    *op3 = result.into();
 }
 
 //TODO: Implement circuit for signed multiplication
 pub fn mulmod<H: Host + ?Sized>(interpreter: &mut Interpreter, _host: &mut H) {
     gas!(interpreter, gas::MID);
     pop_top!(interpreter, op1, op2, op3);
-    *op3 = op1.to_u256().mul_mod(op2.into(), op3.to_u256()).into()
+    let result = op1.to_u256().mul_mod(op2.into(), op3.to_u256());
+    *op3 = result.into();
 }
 
-//TODO?: Implement circuit for signed exponentiation
+//TODO: Implement circuit for signed exponentiation
 pub fn exp<H: Host + ?Sized, SPEC: Spec>(interpreter: &mut Interpreter, _host: &mut H) {
     pop_top!(interpreter, op1, op2);
     gas_or_fail!(interpreter, gas::exp_cost(SPEC::SPEC_ID, op2.to_u256()));
-    *op2 = op1.to_u256().pow(op2.to_u256()).into();
+    let result = op1.to_u256().pow(op2.to_u256());
+    *op2 = result.into();
 }
 
 /// Implements the `SIGNEXTEND` opcode as defined in the Ethereum Yellow Paper.
