@@ -1,6 +1,6 @@
 use crate::{
     gas::{self, warm_cold_cost, warm_cold_cost_with_delegation, CALL_STIPEND},
-    interpreter::{private_memory::is_bytes_private_ref, Interpreter},
+    interpreter::Interpreter,
     Host, InstructionResult,
 };
 use core::cmp::min;
