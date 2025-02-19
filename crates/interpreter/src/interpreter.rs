@@ -6,7 +6,7 @@ pub(crate) mod shared_memory;
 mod stack;
 
 use crate::instructions::utility::ruint_to_garbled_uint;
-use bytecode::opcode::{OpCode, OPCODE_INFO};
+use bytecode::opcode::{OpCode, JUMP, JUMPI, OPCODE_INFO, PUSH0, PUSH32};
 use compute::prelude::{GateIndexVec, WRK17CircuitBuilder};
 use compute::uint::GarbledUint256;
 pub use contract::Contract;
@@ -450,7 +450,7 @@ impl Interpreter {
                 0x00 // STOP opcode.
             };
 
-            println!("🔁 Step: {:#?}", OPCODE_INFO[opcode as usize]);
+            println!("#️⃣ Step: {:#?}", OPCODE_INFO[opcode as usize]);
 
             // Create a constant wire for the current public PC.
             let pc_const = self.create_pc_wire(public_pc);
@@ -460,21 +460,20 @@ impl Interpreter {
             };
             let is_this_step = GateIndexVec::from(vec![is_this_step]);
 
-            if opcode >= 0x60 && opcode <= 0x7f {
+            if opcode >= PUSH0 && opcode <= PUSH32 {
                 // Handle PUSH opcodes: increment by (1 + number of push bytes).
-                let n = (opcode - 0x5f) as usize;
+                let n = (opcode - PUSH0) as usize;
                 let next_pc = public_pc + 1 + n;
                 let next_pc_wire = self.create_pc_wire(next_pc);
                 self.proposed_pc_wire = Some(next_pc_wire);
 
                 // For PUSH, also push the immediate value onto the stack.
-                let mut bytes = [0u8; 32];
-                if public_pc + 1 + n <= self.bytecode.len() {
-                    let data_slice = &self.bytecode[public_pc + 1..public_pc + 1 + n];
-                    bytes[..n].copy_from_slice(data_slice);
+                for i in 0..n {
+                    let byte = self.bytecode[public_pc + 1 + i];
+                    self.stack
+                        .push_stack_value_data(StackValueData::Public(U256::from(byte)))
+                        .unwrap();
                 }
-                let push_value = U256::from_le_bytes(bytes);
-                self.stack.push_stack_value_data(push_value.into()).unwrap();
 
                 public_pc = next_pc;
             } else {
@@ -487,7 +486,7 @@ impl Interpreter {
 
                 // If the opcode is a jump-style opcode, break out of the unrolling loop
                 // immediately after updating the PC wire so that no extra increment is applied.
-                if opcode == 0x56 || opcode == 0x57 {
+                if opcode == JUMP || opcode == JUMPI {
                     public_pc = next_pc;
                     let new_pc_wire = {
                         let mut cb = self.circuit_builder.borrow_mut();
